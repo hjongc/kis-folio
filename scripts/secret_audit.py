@@ -38,7 +38,9 @@ def tracked_files() -> list[Path]:
 
 
 def is_allowed(path: Path, line: str) -> bool:
-    if str(path) in ALLOWLIST_PATHS and any(value in line for value in ALLOWLIST_VALUES):
+    if any(value in line for value in ALLOWLIST_VALUES):
+        return True
+    if str(path) in ALLOWLIST_PATHS:
         return True
     if "redact(" in line or "PLACEHOLDER" in line:
         return True

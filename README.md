@@ -10,24 +10,47 @@ This project is not affiliated with Korea Investment & Securities Co., Ltd.
 It intentionally avoids order placement and automatic trading. The scope is
 read-only analysis, reporting, and decision support.
 
+![kis-folio workflow](docs/assets/workflow.svg)
+
 ## Safety Notice
 
 This is not financial advice. Generated reports are LLM-assisted decision
 support and can be wrong. You are responsible for your own investment decisions,
 API credentials, LLM provider privacy settings, and usage costs.
 
-## Setup
+## Quick Start With Mock Data
 
 ```bash
-cp .env.example .env
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+folio status --mock
+folio report --mock --no-llm --period 2026-05
 ```
 
-Fill `.env` with issued KIS production keys and your preferred LLM provider key.
+This path uses no real brokerage credentials and makes no LLM call.
+
+## Setup For Real Use
+
+1. Copy the environment template:
+
+```bash
+cp .env.example .env
+```
+
+2. Fill in KIS credentials:
+
+```bash
+KIS_APP_KEY_MAIN=your_kis_app_key
+KIS_APP_SECRET_MAIN=your_kis_app_secret
+KIS_CANO_MAIN=12345678
+KIS_ACNT_PRDT_CD_MAIN=01
+```
+
+3. Configure an LLM provider.
+
 OpenRouter is the default, but any OpenAI-compatible chat completions endpoint
-can be used by setting:
+can be used:
 
 ```bash
 LLM_PROVIDER=openrouter
@@ -40,20 +63,42 @@ LLM_MODEL_FAST=anthropic/claude-haiku-4.5
 For OpenAI-compatible self-hosted gateways, point `LLM_BASE_URL` at your gateway
 and use model names supported by that gateway.
 
-## Commands
+4. Initialize local state and validate configuration:
 
 ```bash
 folio doctor
 folio init-db
 folio account add --id main --label "Main" --cano 12345678 --product-code 01
+folio doctor --network
+```
+
+## Common Commands
+
+```bash
 folio status --mock
 folio analyze --mock
 folio report --mock --no-llm
+folio status
+folio analyze
 folio
 ```
 
 Use `--mock` until KIS credentials are issued and confirmed. Before real use,
 run `folio doctor --network`, then `folio status`, then `folio analyze`.
+
+## Workflow
+
+1. Read KIS balance and current price data.
+2. Build a fact-only `portfolio_snapshot.md`.
+3. Compute deterministic allocation, concentration, and risk briefs.
+4. Optionally run LangGraph agents:
+   - initial analyst fan-out
+   - bounded bull/bear/risk debate review
+   - final Portfolio Manager synthesis
+5. Write local markdown/SVG outputs under `reports/<YYYY-MM>/`.
+
+The graph is bounded. `--debate-rounds` controls the number of review rounds,
+and `LLM_MAX_CALLS` prevents accidental unbounded LLM usage.
 
 ## Reports
 
