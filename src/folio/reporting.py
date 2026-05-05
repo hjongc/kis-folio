@@ -161,6 +161,7 @@ class ReportPaths:
     snapshot_path: Path
     briefs_path: Path
     multi_agent_path: Path
+    workflow_trace_path: Path
     visual_path: Path
     report_path: Path
 
@@ -171,6 +172,7 @@ def default_report_paths(output_dir: Path, period: str) -> ReportPaths:
         snapshot_path=period_dir / "portfolio_snapshot.md",
         briefs_path=period_dir / "portfolio_agent_briefs.md",
         multi_agent_path=period_dir / "portfolio_multi_agent_runs.md",
+        workflow_trace_path=period_dir / "portfolio_workflow_trace.md",
         visual_path=period_dir / "portfolio_visual.svg",
         report_path=period_dir / "portfolio_analysis_report.md",
     )

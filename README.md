@@ -55,11 +55,24 @@ Generate a true multi-agent LLM report:
 folio report --agentic
 ```
 
+`--agentic` runs a production-style workflow: analyst fan-out, optional
+bull/bear/risk debate review, and final Portfolio Manager synthesis. On Python
+3.10+ you can install LangGraph orchestration with:
+
+```bash
+python -m pip install -e ".[agent,dev]"
+folio report --agentic --agent-engine langgraph
+```
+
+On Python 3.9 the CLI uses the built-in local DAG executor with the same node
+order and trace output.
+
 Outputs are written under `reports/<YYYY-MM>/`:
 
 - `portfolio_snapshot.md`: fact-only input data
 - `portfolio_agent_briefs.md`: TradingAgents-inspired account-level analyst briefs
 - `portfolio_multi_agent_runs.md`: role-by-role LLM outputs when `--agentic` is used
+- `portfolio_workflow_trace.md`: workflow engine, retries, timing, and token/cost totals
 - `portfolio_visual.svg`: lightweight visual summary
 - `portfolio_analysis_report.md`: OpenRouter LLM report
 
@@ -67,4 +80,10 @@ For liquidity-constrained reports:
 
 ```bash
 folio report --cash-need 50000000 --needed-by 2026-05-28 --withdraw-by 2026-05-25
+```
+
+Useful production controls:
+
+```bash
+folio report --agentic --agent-engine auto --debate-rounds 1 --agent-retries 2 --agent-workers 4
 ```

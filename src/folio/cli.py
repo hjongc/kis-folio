@@ -11,8 +11,7 @@ from .agentic import (
     build_agent_briefs,
     render_agent_briefs_markdown,
     render_agent_runs_markdown,
-    run_llm_agent_team,
-    synthesize_llm_agent_report,
+    run_llm_agent_workflow,
 )
 from .analyzer import calculate_metrics
 from .config import load_settings
@@ -81,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--mock", action="store_true")
     report.add_argument("--deep", action="store_true")
     report.add_argument("--agentic", action="store_true")
+    report.add_argument("--agent-engine", choices=["auto", "langgraph", "local"], default="auto")
+    report.add_argument("--debate-rounds", type=int, default=1)
+    report.add_argument("--agent-retries", type=int, default=2)
+    report.add_argument("--agent-workers", type=int, default=4)
     report.add_argument("--no-llm", action="store_true")
     report.add_argument("--period")
     report.add_argument("--report-date")
@@ -288,7 +291,7 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
         agent_briefs_markdown=agent_briefs_markdown,
     )
     if args.agentic:
-        runs = run_llm_agent_team(
+        workflow = run_llm_agent_workflow(
             settings=settings.openrouter,
             repo_root=repo_root,
             account_id=account_id,
@@ -296,24 +299,23 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
             snapshot_markdown=snapshot_markdown,
             deterministic_briefs_markdown=agent_briefs_markdown,
             liquidity_need=liquidity_need,
+            report_prompt=prompt,
             deep=args.deep,
+            engine=args.agent_engine,
+            debate_rounds=max(args.debate_rounds, 0),
+            max_retries=max(args.agent_retries, 0),
+            max_workers=max(args.agent_workers, 1),
         )
         saved_runs = []
-        for run in runs:
+        for run in workflow.agent_runs:
             run.id = save_agent_run(settings.db_path, run)
             saved_runs.append(run)
         multi_agent_markdown = render_agent_runs_markdown(saved_runs)
         write_text(paths.multi_agent_path, multi_agent_markdown)
+        write_text(paths.workflow_trace_path, workflow.trace_markdown)
         print(f"multi_agent_runs={paths.multi_agent_path}")
-        report_markdown, usage, _agent_outputs = synthesize_llm_agent_report(
-            settings=settings.openrouter,
-            repo_root=repo_root,
-            snapshot_markdown=snapshot_markdown,
-            deterministic_briefs_markdown=agent_briefs_markdown,
-            agent_runs=saved_runs,
-            report_prompt=prompt,
-            deep=args.deep,
-        )
+        print(f"workflow_trace={paths.workflow_trace_path}")
+        report_markdown, usage = workflow.final_report, workflow.final_usage
     else:
         advisor = OpenRouterAdvisor(settings.openrouter, repo_root)
         report_markdown, usage = advisor.generate_markdown_report(prompt=prompt, deep=args.deep)

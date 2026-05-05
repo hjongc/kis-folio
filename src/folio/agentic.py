@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import operator
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, TypedDict
 
-from .advisor import OpenRouterAdvisor
+from .advisor import AdvisorError, OpenRouterAdvisor
 from .config import OpenRouterSettings
-from .models import AgentRun, Position, Snapshot
+from .models import AgentRun, Position, Snapshot, WorkflowEvent
 from .reporting import infer_asset_class, safe_ratio, sorted_positions
 
 
@@ -32,6 +35,15 @@ class AgentSpec:
     stance: str
     task: str
     model_route: str = "fast"
+
+
+@dataclass
+class AgentWorkflowResult:
+    engine: str
+    agent_runs: list[AgentRun]
+    final_report: str
+    final_usage: dict[str, Any]
+    trace_markdown: str
 
 
 AGENT_SPECS = [
@@ -78,6 +90,125 @@ AGENT_SPECS = [
         "advisor",
     ),
 ]
+
+
+DEBATE_SPECS = [
+    AgentSpec(
+        "Bull Researcher Rebuttal",
+        "상승 논거 재검토",
+        "초기 에이전트 결과를 보고 상승 시나리오에서 여전히 유효한 논거와 약해진 논거를 분리하라.",
+        "advisor",
+    ),
+    AgentSpec(
+        "Bear Researcher Rebuttal",
+        "하락 논거 재검토",
+        "초기 에이전트 결과를 보고 작성자의 가설이 틀릴 경우 가장 먼저 훼손될 지점을 제시하라.",
+        "advisor",
+    ),
+    AgentSpec(
+        "Risk Manager Final Review",
+        "최종 위험 한도 검토",
+        "초기 분석과 debate 결과를 보고 출금 전까지 반드시 지켜야 할 한도와 트리거를 제시하라.",
+        "advisor",
+    ),
+]
+
+
+class AgentWorkflowState(TypedDict, total=False):
+    runs: Annotated[list[AgentRun], operator.add]
+    events: Annotated[list[WorkflowEvent], operator.add]
+
+
+def run_llm_agent_workflow(
+    settings: OpenRouterSettings,
+    repo_root: Path,
+    account_id: str,
+    snapshot: Snapshot,
+    snapshot_markdown: str,
+    deterministic_briefs_markdown: str,
+    liquidity_need: LiquidityNeed,
+    report_prompt: str,
+    deep: bool = False,
+    engine: str = "auto",
+    debate_rounds: int = 1,
+    max_retries: int = 2,
+    max_workers: int = 4,
+) -> AgentWorkflowResult:
+    if engine not in {"auto", "langgraph", "local"}:
+        raise ValueError("engine must be one of: auto, langgraph, local")
+    selected_engine = engine
+    if selected_engine == "auto":
+        selected_engine = "langgraph" if langgraph_available() else "local"
+    if selected_engine == "langgraph":
+        try:
+            runs, events = _run_langgraph_agent_workflow(
+                settings=settings,
+                repo_root=repo_root,
+                account_id=account_id,
+                snapshot=snapshot,
+                snapshot_markdown=snapshot_markdown,
+                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                liquidity_need=liquidity_need,
+                deep=deep,
+                debate_rounds=debate_rounds,
+                max_retries=max_retries,
+            )
+        except ImportError:
+            if engine == "langgraph":
+                raise
+            selected_engine = "local"
+            runs, events = _run_local_agent_workflow(
+                settings=settings,
+                repo_root=repo_root,
+                account_id=account_id,
+                snapshot=snapshot,
+                snapshot_markdown=snapshot_markdown,
+                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                liquidity_need=liquidity_need,
+                deep=deep,
+                debate_rounds=debate_rounds,
+                max_retries=max_retries,
+                max_workers=max_workers,
+            )
+    else:
+        runs, events = _run_local_agent_workflow(
+            settings=settings,
+            repo_root=repo_root,
+            account_id=account_id,
+            snapshot=snapshot,
+            snapshot_markdown=snapshot_markdown,
+            deterministic_briefs_markdown=deterministic_briefs_markdown,
+            liquidity_need=liquidity_need,
+            deep=deep,
+            debate_rounds=debate_rounds,
+            max_retries=max_retries,
+            max_workers=max_workers,
+        )
+
+    report_markdown, usage, _agent_outputs = synthesize_llm_agent_report(
+        settings=settings,
+        repo_root=repo_root,
+        snapshot_markdown=snapshot_markdown,
+        deterministic_briefs_markdown=deterministic_briefs_markdown,
+        agent_runs=runs,
+        report_prompt=report_prompt,
+        deep=deep,
+    )
+    events.append(
+        WorkflowEvent(
+            ts=datetime.now(tz=timezone.utc),
+            node="Portfolio Manager Synthesis",
+            status="ok",
+            detail=f"final report generated with {usage.get('total_tokens', 'unknown')} tokens",
+        )
+    )
+    return AgentWorkflowResult(
+        engine=selected_engine,
+        agent_runs=runs,
+        final_report=report_markdown,
+        final_usage=usage,
+        trace_markdown=render_workflow_trace_markdown(selected_engine, events, runs, usage),
+    )
 
 
 def build_agent_briefs(
@@ -145,6 +276,279 @@ def run_llm_agent_team(
         runs.append(run)
         prior_outputs.append(f"## {spec.role}\n\n{output}")
     return runs
+
+
+def langgraph_available() -> bool:
+    try:
+        import langgraph.graph  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _run_local_agent_workflow(
+    settings: OpenRouterSettings,
+    repo_root: Path,
+    account_id: str,
+    snapshot: Snapshot,
+    snapshot_markdown: str,
+    deterministic_briefs_markdown: str,
+    liquidity_need: LiquidityNeed,
+    deep: bool,
+    debate_rounds: int,
+    max_retries: int,
+    max_workers: int,
+) -> tuple[list[AgentRun], list[WorkflowEvent]]:
+    advisor = OpenRouterAdvisor(settings, repo_root)
+    events: list[WorkflowEvent] = [
+        WorkflowEvent(
+            ts=datetime.now(tz=timezone.utc),
+            node="workflow",
+            status="start",
+            detail=f"engine=local, analyst_workers={max_workers}, debate_rounds={debate_rounds}",
+        )
+    ]
+    runs: list[AgentRun] = []
+    worker_count = max(1, min(max_workers, len(AGENT_SPECS)))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(
+                _run_single_agent_with_retry,
+                advisor,
+                settings,
+                account_id,
+                snapshot,
+                snapshot_markdown,
+                deterministic_briefs_markdown,
+                liquidity_need,
+                spec,
+                [],
+                deep,
+                max_retries,
+                0,
+            ): spec
+            for spec in AGENT_SPECS
+        }
+        for future in as_completed(futures):
+            run, run_events = future.result()
+            runs.append(run)
+            events.extend(run_events)
+    runs.sort(key=lambda run: [spec.role for spec in AGENT_SPECS].index(run.role))
+
+    for round_no in range(1, max(debate_rounds, 0) + 1):
+        prior_outputs = [f"## {run.role}\n\n{run.output_markdown}" for run in runs]
+        for spec in DEBATE_SPECS:
+            run, run_events = _run_single_agent_with_retry(
+                advisor=advisor,
+                settings=settings,
+                account_id=account_id,
+                snapshot=snapshot,
+                snapshot_markdown=snapshot_markdown,
+                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                liquidity_need=liquidity_need,
+                spec=spec,
+                prior_outputs=prior_outputs,
+                deep=deep,
+                max_retries=max_retries,
+                debate_round=round_no,
+            )
+            runs.append(run)
+            events.extend(run_events)
+            prior_outputs.append(f"## {run.role}\n\n{run.output_markdown}")
+    return runs, events
+
+
+def _run_langgraph_agent_workflow(
+    settings: OpenRouterSettings,
+    repo_root: Path,
+    account_id: str,
+    snapshot: Snapshot,
+    snapshot_markdown: str,
+    deterministic_briefs_markdown: str,
+    liquidity_need: LiquidityNeed,
+    deep: bool,
+    debate_rounds: int,
+    max_retries: int,
+) -> tuple[list[AgentRun], list[WorkflowEvent]]:
+    try:
+        from langgraph.graph import END, START, StateGraph
+    except ImportError as exc:
+        raise ImportError(
+            "LangGraph is not installed. Install with `python -m pip install -e '.[agent]'` "
+            "on Python 3.10+."
+        ) from exc
+
+    advisor = OpenRouterAdvisor(settings, repo_root)
+    builder = StateGraph(AgentWorkflowState)
+
+    def make_agent_node(spec: AgentSpec):
+        def agent_node(state: AgentWorkflowState) -> AgentWorkflowState:
+            del state
+            run, events = _run_single_agent_with_retry(
+                advisor=advisor,
+                settings=settings,
+                account_id=account_id,
+                snapshot=snapshot,
+                snapshot_markdown=snapshot_markdown,
+                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                liquidity_need=liquidity_need,
+                spec=spec,
+                prior_outputs=[],
+                deep=deep,
+                max_retries=max_retries,
+                debate_round=0,
+            )
+            return {"runs": [run], "events": events}
+
+        return agent_node
+
+    agent_node_names: list[str] = []
+    for spec in AGENT_SPECS:
+        node_name = node_name_for_role(spec.role)
+        builder.add_node(node_name, make_agent_node(spec))
+        builder.add_edge(START, node_name)
+        agent_node_names.append(node_name)
+
+    def debate_node(state: AgentWorkflowState) -> AgentWorkflowState:
+        if debate_rounds <= 0:
+            return {"runs": [], "events": []}
+        runs = list(state.get("runs", []))
+        debate_runs: list[AgentRun] = []
+        events: list[WorkflowEvent] = []
+        prior_outputs = [f"## {run.role}\n\n{run.output_markdown}" for run in runs]
+        for round_no in range(1, debate_rounds + 1):
+            for spec in DEBATE_SPECS:
+                run, run_events = _run_single_agent_with_retry(
+                    advisor=advisor,
+                    settings=settings,
+                    account_id=account_id,
+                    snapshot=snapshot,
+                    snapshot_markdown=snapshot_markdown,
+                    deterministic_briefs_markdown=deterministic_briefs_markdown,
+                    liquidity_need=liquidity_need,
+                    spec=spec,
+                    prior_outputs=prior_outputs,
+                    deep=deep,
+                    max_retries=max_retries,
+                    debate_round=round_no,
+                )
+                debate_runs.append(run)
+                events.extend(run_events)
+                prior_outputs.append(f"## {run.role}\n\n{run.output_markdown}")
+        return {"runs": debate_runs, "events": events}
+
+    builder.add_node("debate_review", debate_node)
+    builder.add_edge(agent_node_names, "debate_review")
+    builder.add_edge("debate_review", END)
+    graph = builder.compile()
+    result = graph.invoke(
+        {
+            "runs": [],
+            "events": [
+                WorkflowEvent(
+                    ts=datetime.now(tz=timezone.utc),
+                    node="workflow",
+                    status="start",
+                    detail=f"engine=langgraph, analyst_nodes={len(agent_node_names)}",
+                )
+            ],
+        }
+    )
+    return list(result.get("runs", [])), list(result.get("events", []))
+
+
+def _run_single_agent_with_retry(
+    advisor: OpenRouterAdvisor,
+    settings: OpenRouterSettings,
+    account_id: str,
+    snapshot: Snapshot,
+    snapshot_markdown: str,
+    deterministic_briefs_markdown: str,
+    liquidity_need: LiquidityNeed,
+    spec: AgentSpec,
+    prior_outputs: list[str],
+    deep: bool,
+    max_retries: int,
+    debate_round: int,
+) -> tuple[AgentRun, list[WorkflowEvent]]:
+    events: list[WorkflowEvent] = []
+    attempts = max(1, max_retries + 1)
+    model = choose_agent_model(settings, spec.model_route, deep=deep)
+    for attempt in range(1, attempts + 1):
+        started = time.monotonic()
+        try:
+            prompt = render_agent_prompt(
+                spec=spec,
+                snapshot_markdown=snapshot_markdown,
+                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                liquidity_need=liquidity_need,
+                prior_outputs=prior_outputs,
+            )
+            output, usage = advisor.generate_markdown(
+                system_prompt=agent_system_prompt(spec),
+                user_prompt=prompt,
+                model=model,
+                operation=f"agent:{spec.role}",
+                timeout=90,
+            )
+            validate_agent_output(spec, output)
+            duration = time.monotonic() - started
+            events.append(
+                WorkflowEvent(
+                    ts=datetime.now(tz=timezone.utc),
+                    node=spec.role,
+                    status="ok",
+                    detail=f"model={model}, debate_round={debate_round}",
+                    attempt=attempt,
+                    duration_sec=duration,
+                )
+            )
+            return (
+                AgentRun(
+                    id=None,
+                    account_id=account_id,
+                    snapshot_id=snapshot.id,
+                    ts=datetime.now(tz=timezone.utc),
+                    role=spec.role,
+                    model=model,
+                    input_json={
+                        "role": spec.role,
+                        "stance": spec.stance,
+                        "task": spec.task,
+                        "liquidity_need": liquidity_need_to_json(liquidity_need),
+                        "attempt": attempt,
+                        "debate_round": debate_round,
+                    },
+                    output_markdown=output,
+                    token_usage=usage,
+                ),
+                events,
+            )
+        except AdvisorError as exc:
+            duration = time.monotonic() - started
+            events.append(
+                WorkflowEvent(
+                    ts=datetime.now(tz=timezone.utc),
+                    node=spec.role,
+                    status="retry" if attempt < attempts else "error",
+                    detail=str(exc),
+                    attempt=attempt,
+                    duration_sec=duration,
+                )
+            )
+            if attempt >= attempts:
+                raise
+            time.sleep(min(2**attempt, 8))
+    raise AdvisorError(f"{spec.role} failed without producing an output")
+
+
+def validate_agent_output(spec: AgentSpec, output: str) -> None:
+    if len(output.strip()) < 50:
+        raise AdvisorError(f"{spec.role} returned an unexpectedly short output")
+
+
+def node_name_for_role(role: str) -> str:
+    return role.lower().replace("/", "_").replace(" ", "_")
 
 
 def synthesize_llm_agent_report(
@@ -250,6 +654,46 @@ def render_agent_runs_markdown(runs: list[AgentRun]) -> str:
                 "",
                 run.output_markdown.strip(),
             ]
+        )
+    return "\n".join(lines) + "\n"
+
+
+def render_workflow_trace_markdown(
+    engine: str,
+    events: list[WorkflowEvent],
+    runs: list[AgentRun],
+    final_usage: dict[str, Any],
+) -> str:
+    total_tokens = sum(int(run.token_usage.get("total_tokens", 0) or 0) for run in runs)
+    total_tokens += int(final_usage.get("total_tokens", 0) or 0)
+    total_cost = sum(float(run.token_usage.get("cost", 0) or 0) for run in runs)
+    total_cost += float(final_usage.get("cost", 0) or 0)
+    lines = [
+        "---",
+        "type: portfolio-workflow-trace",
+        "schema_version: 1.0",
+        f"engine: {engine}",
+        "---",
+        "",
+        "# Portfolio Workflow Trace",
+        "",
+        "## Summary",
+        "",
+        f"- engine: `{engine}`",
+        f"- agent_runs: {len(runs)}",
+        f"- total_tokens_reported: {total_tokens}",
+        f"- total_cost_reported: {total_cost:.6f}",
+        "",
+        "## Events",
+        "",
+        "| ts | node | status | attempt | duration_sec | detail |",
+        "|---|---|---|---:|---:|---|",
+    ]
+    for event in events:
+        detail = event.detail.replace("|", "/")
+        lines.append(
+            f"| {event.ts.isoformat()} | {event.node} | {event.status} | "
+            f"{event.attempt} | {event.duration_sec:.2f} | {detail} |"
         )
     return "\n".join(lines) + "\n"
 

@@ -110,3 +110,13 @@ class AgentRun:
     input_json: dict[str, Any]
     output_markdown: str
     token_usage: dict[str, Any]
+
+
+@dataclass
+class WorkflowEvent:
+    ts: datetime
+    node: str
+    status: str
+    detail: str
+    attempt: int = 1
+    duration_sec: float = 0.0
