@@ -1,8 +1,6 @@
 from datetime import date
 from pathlib import Path
 
-import pytest
-
 from folio.agentic import (
     LiquidityNeed,
     build_agent_briefs,
@@ -135,12 +133,20 @@ def test_render_workflow_trace_markdown_contains_engine_and_events() -> None:
         duration_sec=1.25,
     )
 
-    markdown = render_workflow_trace_markdown("local", [event], [run], {"total_tokens": 5})
+    markdown = render_workflow_trace_markdown(
+        "local",
+        [event],
+        [run],
+        planned_calls=1,
+        debate_rounds=0,
+    )
 
     assert "portfolio-workflow-trace" in markdown
     assert "engine: local" in markdown
     assert "Risk Manager" in markdown
-    assert "total_tokens_reported: 15" in markdown
+    assert "planned_llm_calls: 1" in markdown
+    assert "actual_llm_calls: 1" in markdown
+    assert "total_tokens_reported: 10" in markdown
 
 
 def test_report_has_end_marker() -> None:
@@ -221,7 +227,8 @@ def test_run_local_agent_workflow_with_fake_advisor(monkeypatch) -> None:
     )
 
     assert result.engine == "local"
-    assert len(result.agent_runs) == 10
+    assert len(result.agent_runs) == 11
+    assert result.agent_runs[-1].role == "Portfolio Manager Synthesis"
     assert "Portfolio Manager Synthesis" in result.trace_markdown
     assert result.final_report.startswith("agent:Portfolio Manager Synthesis")
 
@@ -279,14 +286,25 @@ def test_run_langgraph_agent_workflow_with_fake_advisor(monkeypatch) -> None:
     )
 
     assert result.engine == "langgraph"
-    assert len(result.agent_runs) == 10
+    assert len(result.agent_runs) == 11
     assert result.agent_runs[0].role == "Allocation Analyst"
     assert "engine: langgraph" in result.trace_markdown
 
 
-def test_agent_workflow_rejects_excessive_planned_llm_calls(monkeypatch) -> None:
+def test_agent_workflow_runs_three_debate_rounds_by_default(monkeypatch) -> None:
     class FakeAdvisor:
-        pass
+        def __init__(self, settings, repo_root: Path) -> None:
+            self.settings = settings
+            self.repo_root = repo_root
+
+        def generate_markdown(
+            self, system_prompt, user_prompt, model, operation, timeout, max_tokens=None
+        ):
+            del system_prompt, user_prompt, model, timeout, max_tokens
+            return (
+                f"{operation}. This fake output is long enough to pass validation.",
+                {"total_tokens": 1},
+            )
 
     monkeypatch.setattr("folio.agentic.OpenAICompatibleAdvisor", FakeAdvisor)
     balance = mock_balance("main")
@@ -308,22 +326,24 @@ def test_agent_workflow_rejects_excessive_planned_llm_calls(monkeypatch) -> None
         dev_model="dev",
         test_model="test",
         extract_model="extract",
-        max_llm_calls=3,
     )
 
-    with pytest.raises(Exception, match="requires 11 LLM calls"):
-        run_llm_agent_workflow(
-            settings=settings,
-            repo_root=Path("."),
-            account_id="main",
-            snapshot=snapshot,
-            snapshot_markdown="SNAPSHOT",
-            deterministic_briefs_markdown="BRIEFS",
-            liquidity_need=LiquidityNeed(),
-            report_prompt="REPORT",
-            engine="local",
-            debate_rounds=1,
-        )
+    result = run_llm_agent_workflow(
+        settings=settings,
+        repo_root=Path("."),
+        account_id="main",
+        snapshot=snapshot,
+        snapshot_markdown="SNAPSHOT",
+        deterministic_briefs_markdown="BRIEFS",
+        liquidity_need=LiquidityNeed(),
+        report_prompt="REPORT",
+        engine="local",
+        max_retries=0,
+    )
+
+    assert len(result.agent_runs) == 17
+    assert "debate_rounds: 3" in result.trace_markdown
+    assert "planned_llm_calls: 17" in result.trace_markdown
 
 
 def test_render_portfolio_svg_contains_svg() -> None:

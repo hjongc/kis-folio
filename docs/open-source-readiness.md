@@ -56,5 +56,5 @@ Manual checks:
 - Transactions, deposits/withdrawals, dividends, and tax lots are not complete.
 - LLM providers may process holdings/cash data. Users must choose providers and
   privacy settings deliberately.
-- Agentic reports can cost money. Defaults include call and output-token limits,
-  but users should still set `LLM_MAX_COST_USD` for hard cost control.
+- Agentic reports can cost money. Users control workflow depth with
+  `--debate-rounds` and output size with token/context limits.

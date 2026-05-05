@@ -48,29 +48,19 @@ class AgentWorkflowResult:
 
 
 @dataclass
-class LLMBudget:
-    max_calls: int
-    max_cost_usd: float | None
+class LLMUsageTracker:
     calls_made: int = 0
     cost_usd: float = 0.0
     lock: Any = field(default_factory=Lock, repr=False, compare=False)
 
     def reserve(self, operation: str) -> None:
+        del operation
         with self.lock:
-            if self.calls_made >= self.max_calls:
-                raise AdvisorError(
-                    f"LLM call budget exceeded before {operation}: "
-                    f"{self.calls_made}/{self.max_calls} calls used"
-                )
             self.calls_made += 1
 
     def record_usage(self, usage: dict[str, Any]) -> None:
         with self.lock:
             self.cost_usd += float(usage.get("cost", 0) or 0)
-            if self.max_cost_usd is not None and self.cost_usd > self.max_cost_usd:
-                raise AdvisorError(
-                    f"LLM cost budget exceeded: ${self.cost_usd:.4f} > ${self.max_cost_usd:.4f}"
-                )
 
 
 AGENT_SPECS = [
@@ -157,7 +147,7 @@ def run_llm_agent_workflow(
     report_prompt: str,
     deep: bool = False,
     engine: str = "langgraph",
-    debate_rounds: int = 1,
+    debate_rounds: int = 3,
     max_retries: int = 2,
     max_workers: int = 4,
 ) -> AgentWorkflowResult:
@@ -165,12 +155,7 @@ def run_llm_agent_workflow(
         raise ValueError("engine must be one of: langgraph, local")
     selected_engine = engine
     planned_calls = len(AGENT_SPECS) + max(debate_rounds, 0) * len(DEBATE_SPECS) + 1
-    if planned_calls > settings.max_llm_calls:
-        raise AdvisorError(
-            f"Planned agent workflow requires {planned_calls} LLM calls, "
-            f"but LLM_MAX_CALLS is {settings.max_llm_calls}"
-        )
-    budget = LLMBudget(settings.max_llm_calls, settings.max_cost_usd)
+    usage_tracker = LLMUsageTracker()
     if selected_engine == "langgraph":
         runs, events = _run_langgraph_agent_workflow(
             settings=settings,
@@ -183,7 +168,7 @@ def run_llm_agent_workflow(
             deep=deep,
             debate_rounds=debate_rounds,
             max_retries=max_retries,
-            budget=budget,
+            usage_tracker=usage_tracker,
         )
     else:
         runs, events = _run_local_agent_workflow(
@@ -198,7 +183,7 @@ def run_llm_agent_workflow(
             debate_rounds=debate_rounds,
             max_retries=max_retries,
             max_workers=max_workers,
-            budget=budget,
+            usage_tracker=usage_tracker,
         )
 
     report_markdown, usage, _agent_outputs = synthesize_llm_agent_report(
@@ -209,10 +194,25 @@ def run_llm_agent_workflow(
         agent_runs=runs,
         report_prompt=report_prompt,
         deep=deep,
-        budget=budget,
+        usage_tracker=usage_tracker,
     )
-    budget.record_usage(usage)
     marker_ok = report_has_end_marker(report_markdown)
+    pm_run = AgentRun(
+        id=None,
+        account_id=account_id,
+        snapshot_id=snapshot.id,
+        ts=datetime.now(tz=UTC),
+        role="Portfolio Manager Synthesis",
+        model=settings.advisor_deep_model if deep else settings.advisor_model,
+        input_json={
+            "role": "Portfolio Manager Synthesis",
+            "source_agent_runs": len(runs),
+            "debate_rounds": max(debate_rounds, 0),
+        },
+        output_markdown=report_markdown,
+        token_usage=usage,
+    )
+    runs_with_pm = [*runs, pm_run]
     events.append(
         WorkflowEvent(
             ts=datetime.now(tz=UTC),
@@ -226,10 +226,16 @@ def run_llm_agent_workflow(
     )
     return AgentWorkflowResult(
         engine=selected_engine,
-        agent_runs=runs,
+        agent_runs=runs_with_pm,
         final_report=report_markdown,
         final_usage=usage,
-        trace_markdown=render_workflow_trace_markdown(selected_engine, events, runs, usage),
+        trace_markdown=render_workflow_trace_markdown(
+            selected_engine,
+            events,
+            runs_with_pm,
+            planned_calls=planned_calls,
+            debate_rounds=max(debate_rounds, 0),
+        ),
     )
 
 
@@ -321,7 +327,7 @@ def _run_local_agent_workflow(
     debate_rounds: int,
     max_retries: int,
     max_workers: int,
-    budget: LLMBudget,
+    usage_tracker: LLMUsageTracker,
 ) -> tuple[list[AgentRun], list[WorkflowEvent]]:
     advisor = OpenAICompatibleAdvisor(settings, repo_root)
     events: list[WorkflowEvent] = [
@@ -350,7 +356,7 @@ def _run_local_agent_workflow(
                 deep,
                 max_retries,
                 0,
-                budget,
+                usage_tracker,
             ): spec
             for spec in AGENT_SPECS
         }
@@ -376,7 +382,7 @@ def _run_local_agent_workflow(
                 deep=deep,
                 max_retries=max_retries,
                 debate_round=round_no,
-                budget=budget,
+                usage_tracker=usage_tracker,
             )
             runs.append(run)
             events.extend(run_events)
@@ -395,7 +401,7 @@ def _run_langgraph_agent_workflow(
     deep: bool,
     debate_rounds: int,
     max_retries: int,
-    budget: LLMBudget,
+    usage_tracker: LLMUsageTracker,
 ) -> tuple[list[AgentRun], list[WorkflowEvent]]:
     try:
         from langgraph.graph import END, START, StateGraph
@@ -424,7 +430,7 @@ def _run_langgraph_agent_workflow(
                 deep=deep,
                 max_retries=max_retries,
                 debate_round=0,
-                budget=budget,
+                usage_tracker=usage_tracker,
             )
             return {"runs": [run], "events": events}
 
@@ -459,7 +465,7 @@ def _run_langgraph_agent_workflow(
                     deep=deep,
                     max_retries=max_retries,
                     debate_round=round_no,
-                    budget=budget,
+                    usage_tracker=usage_tracker,
                 )
                 debate_runs.append(run)
                 events.extend(run_events)
@@ -499,7 +505,7 @@ def _run_single_agent_with_retry(
     deep: bool,
     max_retries: int,
     debate_round: int,
-    budget: LLMBudget,
+    usage_tracker: LLMUsageTracker,
 ) -> tuple[AgentRun, list[WorkflowEvent]]:
     events: list[WorkflowEvent] = []
     attempts = max(1, max_retries + 1)
@@ -507,7 +513,7 @@ def _run_single_agent_with_retry(
     for attempt in range(1, attempts + 1):
         started = time.monotonic()
         try:
-            budget.reserve(spec.role)
+            usage_tracker.reserve(spec.role)
             prompt = render_agent_prompt(
                 spec=spec,
                 snapshot_markdown=clip_text(snapshot_markdown, settings.max_context_chars),
@@ -527,7 +533,7 @@ def _run_single_agent_with_retry(
                 timeout=90,
                 max_tokens=settings.max_output_tokens,
             )
-            budget.record_usage(usage)
+            usage_tracker.record_usage(usage)
             validate_agent_output(spec, output)
             duration = time.monotonic() - started
             events.append(
@@ -601,15 +607,15 @@ def synthesize_llm_agent_report(
     agent_runs: list[AgentRun],
     report_prompt: str,
     deep: bool = False,
-    budget: LLMBudget | None = None,
+    usage_tracker: LLMUsageTracker | None = None,
 ) -> tuple[str, dict[str, Any], str]:
     advisor = OpenAICompatibleAdvisor(settings, repo_root)
     model = settings.advisor_deep_model if deep else settings.advisor_model
     agent_outputs = render_agent_runs_markdown(
         agent_runs, max_output_chars=settings.max_agent_output_chars
     )
-    if budget is not None:
-        budget.reserve("Portfolio Manager Synthesis")
+    if usage_tracker is not None:
+        usage_tracker.reserve("Portfolio Manager Synthesis")
     prompt = (
         f"{report_prompt}\n\n"
         "multi_agent_outputs.md:\n\n"
@@ -630,6 +636,8 @@ def synthesize_llm_agent_report(
         timeout=120,
         max_tokens=settings.max_report_tokens,
     )
+    if usage_tracker is not None:
+        usage_tracker.record_usage(usage)
     return output, usage, agent_outputs
 
 
@@ -694,13 +702,21 @@ def render_agent_runs_markdown(
         "# Multi-Agent Runs",
     ]
     for run in runs:
+        debate_round = run.input_json.get("debate_round", "-")
+        source_agent_runs = run.input_json.get("source_agent_runs")
+        metadata = [
+            f"- model: `{run.model}`",
+            f"- debate_round: `{debate_round}`",
+            f"- token_usage: `{run.token_usage}`",
+        ]
+        if source_agent_runs is not None:
+            metadata.insert(2, f"- source_agent_runs: `{source_agent_runs}`")
         lines.extend(
             [
                 "",
                 f"## {run.role}",
                 "",
-                f"- model: `{run.model}`",
-                f"- token_usage: `{run.token_usage}`",
+                *metadata,
                 "",
                 clip_text(run.output_markdown.strip(), max_output_chars),
             ]
@@ -718,12 +734,13 @@ def render_workflow_trace_markdown(
     engine: str,
     events: list[WorkflowEvent],
     runs: list[AgentRun],
-    final_usage: dict[str, Any],
+    planned_calls: int | None = None,
+    debate_rounds: int | None = None,
 ) -> str:
     total_tokens = sum(int(run.token_usage.get("total_tokens", 0) or 0) for run in runs)
-    total_tokens += int(final_usage.get("total_tokens", 0) or 0)
     total_cost = sum(float(run.token_usage.get("cost", 0) or 0) for run in runs)
-    total_cost += float(final_usage.get("cost", 0) or 0)
+    pm_runs = [run for run in runs if run.role == "Portfolio Manager Synthesis"]
+    debate_runs = [run for run in runs if int(run.input_json.get("debate_round", 0) or 0) > 0]
     lines = [
         "---",
         "type: portfolio-workflow-trace",
@@ -737,7 +754,12 @@ def render_workflow_trace_markdown(
         "",
         f"- engine: `{engine}`",
         f"- agent_runs: {len(runs)}",
-        f"- actual_llm_calls: {len(runs) + 1}",
+        f"- analyst_agents: {len(AGENT_SPECS)}",
+        f"- debate_rounds: {debate_rounds if debate_rounds is not None else 'unknown'}",
+        f"- debate_agent_runs: {len(debate_runs)}",
+        f"- portfolio_manager_runs: {len(pm_runs)}",
+        f"- planned_llm_calls: {planned_calls if planned_calls is not None else 'unknown'}",
+        f"- actual_llm_calls: {len(runs)}",
         f"- total_tokens_reported: {total_tokens}",
         f"- total_cost_reported: {total_cost:.6f}",
         "",

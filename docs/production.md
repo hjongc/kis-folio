@@ -77,18 +77,13 @@ LLM_MODEL_ADVISOR=anthropic/claude-sonnet-4.6
 LLM_MODEL_FAST=anthropic/claude-haiku-4.5
 ```
 
-Cost controls:
+Context and output controls:
 
 ```bash
-LLM_MAX_CALLS=12
-LLM_MAX_COST_USD=0.50
 LLM_MAX_OUTPUT_TOKENS=1600
 LLM_MAX_REPORT_TOKENS=5000
 LLM_MAX_AGENT_OUTPUT_CHARS=5000
 ```
-
-`LLM_MAX_COST_USD` depends on provider-reported `usage.cost`. If a provider does
-not report cost, rely on call and token limits.
 
 ## Multi-Agent Workflow
 
@@ -97,6 +92,10 @@ not report cost, rely on call and token limits.
 1. Analyst fan-out: allocation, macro, momentum, liquidity, bull, bear, and risk agents.
 2. Debate/review: bull rebuttal, bear rebuttal, and final risk review for each debate round.
 3. Portfolio Manager synthesis: one final model call over all agent outputs.
+
+By default this is 7 analyst agents + 3 debate/review agents x 3 rounds + 1
+Portfolio Manager synthesis = 17 LLM calls. All agent outputs, including the
+Portfolio Manager synthesis, are rendered in `portfolio_multi_agent_runs.md`.
 
 The default engine is `langgraph`. The project targets Python 3.12 and includes
 LangGraph as a required dependency. The local DAG executor remains available for
@@ -109,11 +108,9 @@ folio report --agentic --agent-engine langgraph
 
 Production controls:
 
-- `--debate-rounds N`: number of bull/bear/risk review rounds. Default: `1`.
+- `--debate-rounds N`: number of bull/bear/risk review rounds. Default: `3`.
 - `--agent-retries N`: retry count per agent node after a failed LLM call. Default: `2`.
 - `--agent-workers N`: local executor parallelism when `--agent-engine local` is used. Default: `4`.
-- `--llm-max-calls N`: CLI override for the LLM call cap.
-- `--llm-max-cost-usd N`: CLI override for the reported cost cap.
 - `--deep`: route all agents to the deep model.
 
 The workflow trace records engine selection, node attempts, duration, and

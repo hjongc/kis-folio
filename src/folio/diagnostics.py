@@ -58,8 +58,6 @@ def validate_settings(settings: Settings, repo_root: Path) -> list[DiagnosticIss
         issues.append(
             DiagnosticIssue("warning", "LLM_PROVIDER=openrouter but LLM_BASE_URL is not OpenRouter")
         )
-    if settings.llm.max_llm_calls <= 0:
-        issues.append(DiagnosticIssue("error", "LLM_MAX_CALLS must be positive"))
     if settings.llm.max_output_tokens <= 0 or settings.llm.max_report_tokens <= 0:
         issues.append(DiagnosticIssue("error", "LLM token limits must be positive"))
     if not (repo_root / "prompts" / "advisor.md").exists() and not (

@@ -122,16 +122,17 @@ LangGraph 멀티 에이전트 리포트:
 folio report --agentic
 ```
 
-비용과 호출 수를 제한한 실행:
+토론을 더 깊게 돌리는 실행:
 
 ```bash
 folio report --agentic \
   --agent-engine langgraph \
-  --debate-rounds 1 \
-  --agent-retries 2 \
-  --llm-max-calls 12 \
-  --llm-max-cost-usd 0.50
+  --debate-rounds 3 \
+  --agent-retries 2
 ```
+
+기본 agentic workflow는 7개 초기 분석가, 라운드당 3개 debate/review agent,
+그리고 1개 Portfolio Manager synthesis로 구성됩니다. 기본 debate round는 3회입니다.
 
 특정 날짜까지 현금이 필요한 경우:
 
@@ -175,8 +176,6 @@ folio report \
 | `LLM_MODEL_ADVISOR` | LLM 사용 시 | 메인 리포트 모델 |
 | `LLM_MODEL_ADVISOR_DEEP` | 선택 | 고성능 심층 분석 모델 |
 | `LLM_MODEL_FAST` | agentic 사용 시 | 가벼운 에이전트용 모델 |
-| `LLM_MAX_CALLS` | 선택 | agentic report LLM 호출 상한 |
-| `LLM_MAX_COST_USD` | 선택 | provider가 보고한 비용 상한 |
 | `LLM_MAX_OUTPUT_TOKENS` | 선택 | 에이전트별 출력 상한 |
 | `LLM_MAX_REPORT_TOKENS` | 선택 | 최종 리포트 출력 상한 |
 

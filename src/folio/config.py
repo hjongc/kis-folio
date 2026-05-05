@@ -54,8 +54,6 @@ class LLMSettings:
     max_report_tokens: int = 5000
     max_context_chars: int = 24000
     max_agent_output_chars: int = 5000
-    max_llm_calls: int = 12
-    max_cost_usd: float | None = None
 
 
 OpenRouterSettings = LLMSettings
@@ -145,15 +143,5 @@ def load_settings(env_path: Path | None = None) -> Settings:
             max_report_tokens=int(_get("LLM_MAX_REPORT_TOKENS", env_file, "5000")),
             max_context_chars=int(_get("LLM_MAX_CONTEXT_CHARS", env_file, "24000")),
             max_agent_output_chars=int(_get("LLM_MAX_AGENT_OUTPUT_CHARS", env_file, "5000")),
-            max_llm_calls=int(_get("LLM_MAX_CALLS", env_file, "12")),
-            max_cost_usd=parse_optional_float(
-                _get("LLM_MAX_COST_USD", env_file, _get("OPENROUTER_MAX_COST_USD", env_file))
-            ),
         ),
     )
-
-
-def parse_optional_float(value: str) -> float | None:
-    if not value:
-        return None
-    return float(value)

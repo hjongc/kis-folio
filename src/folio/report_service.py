@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -38,11 +38,9 @@ class ReportRequest:
     agentic: bool = False
     deep: bool = False
     agent_engine: str = "langgraph"
-    debate_rounds: int = 1
+    debate_rounds: int = 3
     agent_retries: int = 2
     agent_workers: int = 4
-    llm_max_calls: int | None = None
-    llm_max_cost_usd: float | None = None
 
 
 @dataclass(frozen=True)
@@ -78,23 +76,8 @@ def generate_report(settings: Settings, repo_root: Path, request: ReportRequest)
         agent_briefs_markdown=agent_briefs_markdown,
     )
     if request.agentic:
-        llm_settings = settings.llm
-        if request.llm_max_calls is not None or request.llm_max_cost_usd is not None:
-            llm_settings = replace(
-                llm_settings,
-                max_llm_calls=(
-                    request.llm_max_calls
-                    if request.llm_max_calls is not None
-                    else llm_settings.max_llm_calls
-                ),
-                max_cost_usd=(
-                    request.llm_max_cost_usd
-                    if request.llm_max_cost_usd is not None
-                    else llm_settings.max_cost_usd
-                ),
-            )
         workflow = run_llm_agent_workflow(
-            settings=llm_settings,
+            settings=settings.llm,
             repo_root=repo_root,
             account_id=request.account_id,
             snapshot=request.snapshot,

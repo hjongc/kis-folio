@@ -23,16 +23,13 @@
 - Agent outputs are sorted by role order before synthesis so parallel fan-out
   does not create nondeterministic report ordering.
 
-## Cost Control
+## Context Control
 
-- `LLM_MAX_CALLS` rejects workflows that would exceed the configured number of
-  calls before any LLM request is made.
 - `LLM_MAX_OUTPUT_TOKENS` caps per-agent completions.
 - `LLM_MAX_REPORT_TOKENS` caps final synthesis completions.
 - `LLM_MAX_AGENT_OUTPUT_CHARS` clips agent outputs before final synthesis.
-- `LLM_MAX_COST_USD` stops the workflow once reported provider cost exceeds the
-  configured threshold. Providers that do not report cost cannot be fully
-  controlled by this setting, so call and token caps remain the primary guard.
+- Debate depth is intentionally controlled with `--debate-rounds`, so the
+  workflow shape remains easy to reason about.
 
 ## Functional Gaps
 

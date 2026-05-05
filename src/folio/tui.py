@@ -160,7 +160,8 @@ def run_dashboard(
                         yield Static(
                             (
                                 "[b]Agent Workflow[/b]\n"
-                                "7 analyst fan-out -> bull/bear/risk debate -> PM synthesis\n\n"
+                                "7 analysts -> 3 debate/review agents x 3 rounds "
+                                "-> PM synthesis\n\n"
                                 f"{read_latest_workflow_trace()}"
                             ),
                             classes="card",
@@ -213,8 +214,6 @@ def run_dashboard(
                         liquidity_need=LiquidityNeed(),
                         agentic=True,
                         agent_engine="langgraph",
-                        llm_max_calls=settings.llm.max_llm_calls,
-                        llm_max_cost_usd=settings.llm.max_cost_usd,
                     ),
                 )
             except Exception as exc:

@@ -82,11 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--deep", action="store_true")
     report.add_argument("--agentic", action="store_true")
     report.add_argument("--agent-engine", choices=["langgraph", "local"], default="langgraph")
-    report.add_argument("--debate-rounds", type=int, default=1)
+    report.add_argument("--debate-rounds", type=int, default=3)
     report.add_argument("--agent-retries", type=int, default=2)
     report.add_argument("--agent-workers", type=int, default=4)
-    report.add_argument("--llm-max-calls", type=int)
-    report.add_argument("--llm-max-cost-usd", type=float)
     report.add_argument("--no-llm", action="store_true")
     report.add_argument("--period")
     report.add_argument("--report-date")
@@ -160,8 +158,6 @@ def cmd_setup(args: argparse.Namespace, settings, repo_root: Path) -> int:
         "LLM_MODEL_DEV": prompt_value("Dev model", "google/gemini-3-flash-preview"),
         "LLM_MODEL_TEST": prompt_value("Test model", "deepseek/deepseek-v3.2"),
         "LLM_MODEL_EXTRACT": prompt_value("Extract model", "openai/gpt-5.4-nano"),
-        "LLM_MAX_CALLS": prompt_value("Max LLM calls per agentic report", "12"),
-        "LLM_MAX_COST_USD": prompt_value("Max reported LLM cost in USD, blank disables", ""),
         "LLM_MAX_OUTPUT_TOKENS": prompt_value("Max tokens per agent", "1600"),
         "LLM_MAX_REPORT_TOKENS": prompt_value("Max final report tokens", "5000"),
         "LLM_MAX_CONTEXT_CHARS": prompt_value("Max snapshot context chars", "24000"),
@@ -202,8 +198,6 @@ def cmd_doctor(args: argparse.Namespace, settings, repo_root: Path) -> int:
     print(f"llm_base_url={settings.llm.base_url}")
     print(f"llm_model={settings.llm.advisor_model}")
     print(f"llm_api_key={redact(settings.llm.api_key)}")
-    print(f"llm_max_calls={settings.llm.max_llm_calls}")
-    print(f"llm_max_cost_usd={settings.llm.max_cost_usd}")
     for account in accounts:
         marker = "*" if account.is_active else " "
         print(
@@ -344,8 +338,6 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
             debate_rounds=max(args.debate_rounds, 0),
             agent_retries=max(args.agent_retries, 0),
             agent_workers=max(args.agent_workers, 1),
-            llm_max_calls=args.llm_max_calls,
-            llm_max_cost_usd=args.llm_max_cost_usd,
         ),
     )
     paths = result.paths
