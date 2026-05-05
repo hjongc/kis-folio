@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from .models import Balance, Metrics
+from pathlib import Path
+
+from .agentic import LiquidityNeed
+from .config import Settings
+from .models import Balance, Metrics, Snapshot
+from .report_service import ReportRequest, generate_report
 from .terminal import build_terminal_dashboard, text_bar
 
 
@@ -31,7 +36,13 @@ def render_text_dashboard(balance: Balance, metrics: Metrics) -> None:
     print("[R] refresh  [A] agentic report  [V] view latest report  [Q] quit")
 
 
-def run_dashboard(balance: Balance, metrics: Metrics) -> None:
+def run_dashboard(
+    balance: Balance,
+    metrics: Metrics,
+    settings: Settings | None = None,
+    repo_root: Path | None = None,
+    snapshot: Snapshot | None = None,
+) -> None:
     dashboard = build_terminal_dashboard(balance, metrics)
     try:
         from textual.app import App, ComposeResult
@@ -170,9 +181,41 @@ def run_dashboard(balance: Balance, metrics: Metrics) -> None:
             self.notify("Run `folio status` to refresh account data.")
 
         def action_agentic(self) -> None:
-            self.notify("Run `folio report --agentic` to generate a LangGraph report.")
+            if settings is None or repo_root is None or snapshot is None:
+                self.notify("Run `folio report --agentic` to generate a LangGraph report.")
+                return
+            self.notify("Generating agentic report...")
+            self.run_worker(self.generate_agentic_report, thread=True)
 
         def action_view_report(self) -> None:
             self.notify("Open reports/<YYYY-MM>/portfolio_analysis_report.md.")
+
+        def generate_agentic_report(self) -> None:
+            assert settings is not None
+            assert repo_root is not None
+            assert snapshot is not None
+            period = snapshot.ts.strftime("%Y-%m")
+            result = generate_report(
+                settings=settings,
+                repo_root=repo_root,
+                request=ReportRequest(
+                    account_id=snapshot.account_id,
+                    snapshot=snapshot,
+                    period=period,
+                    report_date=snapshot.ts.date(),
+                    investor_id="local",
+                    output_dir=Path("reports"),
+                    liquidity_need=LiquidityNeed(),
+                    agentic=True,
+                    agent_engine="langgraph",
+                    llm_max_calls=settings.llm.max_llm_calls,
+                    llm_max_cost_usd=settings.llm.max_cost_usd,
+                ),
+            )
+            self.call_from_thread(
+                self.notify,
+                f"Report generated: {result.paths.report_path}",
+                timeout=8,
+            )
 
     FolioDashboard().run()

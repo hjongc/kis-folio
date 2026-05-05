@@ -2,19 +2,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import replace
 from datetime import UTC, datetime
 from getpass import getpass
 from pathlib import Path
 
 from .advisor import AdvisorError, OpenAICompatibleAdvisor, local_advisor_output
-from .agentic import (
-    LiquidityNeed,
-    build_agent_briefs,
-    render_agent_briefs_markdown,
-    render_agent_runs_markdown,
-    run_llm_agent_workflow,
-)
+from .agentic import LiquidityNeed
 from .analyzer import calculate_metrics
 from .config import load_settings
 from .db import (
@@ -24,7 +17,6 @@ from .db import (
     list_accounts,
     list_advisor_outputs,
     save_advisor_output,
-    save_agent_run,
     save_snapshot,
     set_active_account,
     upsert_account,
@@ -33,9 +25,8 @@ from .diagnostics import DiagnosticIssue, has_errors, redact, validate_settings
 from .kis import KISClient, KISError
 from .mock_data import mock_balance
 from .models import Account, AdvisorOutput, Balance, Snapshot
-from .reporting import default_report_paths, render_report_prompt, render_snapshot_markdown
+from .report_service import ReportRequest, generate_report
 from .tui import run_dashboard
-from .visuals import render_portfolio_svg
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -327,90 +318,43 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
     snapshot, from_fallback = load_snapshot(args.mock, settings, account_id)
     report_date = parse_report_date(args.report_date)
     period = args.period or report_date.strftime("%Y-%m")
-    paths = default_report_paths(Path(args.output_dir), period)
-    snapshot_markdown = render_snapshot_markdown(
-        snapshot=snapshot,
-        period=period,
-        report_date=report_date,
-        investor_id=args.investor_id,
+    result = generate_report(
+        settings=settings,
+        repo_root=repo_root,
+        request=ReportRequest(
+            account_id=account_id,
+            snapshot=snapshot,
+            period=period,
+            report_date=report_date,
+            investor_id=args.investor_id,
+            output_dir=Path(args.output_dir),
+            liquidity_need=LiquidityNeed(
+                amount=args.cash_need,
+                needed_by=parse_optional_date(args.needed_by),
+                withdraw_by=parse_optional_date(args.withdraw_by),
+            ),
+            no_llm=args.no_llm,
+            agentic=args.agentic,
+            deep=args.deep,
+            agent_engine=args.agent_engine,
+            debate_rounds=max(args.debate_rounds, 0),
+            agent_retries=max(args.agent_retries, 0),
+            agent_workers=max(args.agent_workers, 1),
+            llm_max_calls=args.llm_max_calls,
+            llm_max_cost_usd=args.llm_max_cost_usd,
+        ),
     )
-    liquidity_need = LiquidityNeed(
-        amount=args.cash_need,
-        needed_by=parse_optional_date(args.needed_by),
-        withdraw_by=parse_optional_date(args.withdraw_by),
-    )
-    agent_briefs = build_agent_briefs(snapshot, liquidity_need=liquidity_need)
-    agent_briefs_markdown = render_agent_briefs_markdown(agent_briefs)
-    visual_svg = render_portfolio_svg(snapshot)
-    write_text(paths.snapshot_path, snapshot_markdown)
-    write_text(paths.briefs_path, agent_briefs_markdown)
-    write_text(paths.visual_path, visual_svg)
+    paths = result.paths
     print(f"snapshot={paths.snapshot_path}")
     print(f"agent_briefs={paths.briefs_path}")
     print(f"visual={paths.visual_path}")
-
-    if args.no_llm:
-        if from_fallback:
-            print(
-                "warning: used latest saved snapshot because live KIS fetch failed",
-                file=sys.stderr,
-            )
-        return 0
-
-    prompt = render_report_prompt(
-        snapshot_markdown,
-        period=period,
-        report_date=report_date,
-        agent_briefs_markdown=agent_briefs_markdown,
-    )
-    if args.agentic:
-        llm_settings = settings.llm
-        if args.llm_max_calls is not None or args.llm_max_cost_usd is not None:
-            llm_settings = replace(
-                llm_settings,
-                max_llm_calls=(
-                    args.llm_max_calls
-                    if args.llm_max_calls is not None
-                    else llm_settings.max_llm_calls
-                ),
-                max_cost_usd=(
-                    args.llm_max_cost_usd
-                    if args.llm_max_cost_usd is not None
-                    else llm_settings.max_cost_usd
-                ),
-            )
-        workflow = run_llm_agent_workflow(
-            settings=llm_settings,
-            repo_root=repo_root,
-            account_id=account_id,
-            snapshot=snapshot,
-            snapshot_markdown=snapshot_markdown,
-            deterministic_briefs_markdown=agent_briefs_markdown,
-            liquidity_need=liquidity_need,
-            report_prompt=prompt,
-            deep=args.deep,
-            engine=args.agent_engine,
-            debate_rounds=max(args.debate_rounds, 0),
-            max_retries=max(args.agent_retries, 0),
-            max_workers=max(args.agent_workers, 1),
-        )
-        saved_runs = []
-        for run in workflow.agent_runs:
-            run.id = save_agent_run(settings.db_path, run)
-            saved_runs.append(run)
-        multi_agent_markdown = render_agent_runs_markdown(saved_runs)
-        write_text(paths.multi_agent_path, multi_agent_markdown)
-        write_text(paths.workflow_trace_path, workflow.trace_markdown)
+    if result.agentic:
         print(f"multi_agent_runs={paths.multi_agent_path}")
         print(f"workflow_trace={paths.workflow_trace_path}")
-        report_markdown, usage = workflow.final_report, workflow.final_usage
-    else:
-        advisor = OpenAICompatibleAdvisor(settings.llm, repo_root)
-        report_markdown, usage = advisor.generate_markdown_report(prompt=prompt, deep=args.deep)
-    write_text(paths.report_path, report_markdown)
-    print(f"report={paths.report_path}")
-    if usage:
-        print(f"token_usage={usage}")
+    if not result.no_llm:
+        print(f"report={paths.report_path}")
+    if result.usage:
+        print(f"token_usage={result.usage}")
     if from_fallback:
         print(
             "warning: reported on latest saved snapshot because live KIS fetch failed",
@@ -420,11 +364,16 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
 
 
 def cmd_tui(args: argparse.Namespace, settings, repo_root: Path) -> int:
-    del repo_root
     account_id = current_account_id(settings)
     snapshot, _from_fallback = load_snapshot(False, settings, account_id)
     balance = snapshot.balance
-    run_dashboard(balance, snapshot.metrics)
+    run_dashboard(
+        balance,
+        snapshot.metrics,
+        settings=settings,
+        repo_root=repo_root,
+        snapshot=snapshot,
+    )
     return 0
 
 
