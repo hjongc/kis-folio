@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .advisor import AdvisorError, OpenRouterAdvisor, local_advisor_output
+from .advisor import AdvisorError, OpenAICompatibleAdvisor, local_advisor_output
 from .agentic import (
     LiquidityNeed,
     build_agent_briefs,
@@ -84,6 +85,8 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--debate-rounds", type=int, default=1)
     report.add_argument("--agent-retries", type=int, default=2)
     report.add_argument("--agent-workers", type=int, default=4)
+    report.add_argument("--llm-max-calls", type=int)
+    report.add_argument("--llm-max-cost-usd", type=float)
     report.add_argument("--no-llm", action="store_true")
     report.add_argument("--period")
     report.add_argument("--report-date")
@@ -134,8 +137,12 @@ def cmd_doctor(args: argparse.Namespace, settings, repo_root: Path) -> int:
     print(f"token_cache_path={settings.kis.token_cache_path}")
     print(f"kis_base_url={settings.kis.base_url}")
     print(f"kis_app_key={redact(settings.kis.app_key)}")
-    print(f"openrouter_model={settings.openrouter.advisor_model}")
-    print(f"openrouter_api_key={redact(settings.openrouter.api_key)}")
+    print(f"llm_provider={settings.llm.provider}")
+    print(f"llm_base_url={settings.llm.base_url}")
+    print(f"llm_model={settings.llm.advisor_model}")
+    print(f"llm_api_key={redact(settings.llm.api_key)}")
+    print(f"llm_max_calls={settings.llm.max_llm_calls}")
+    print(f"llm_max_cost_usd={settings.llm.max_cost_usd}")
     for account in accounts:
         marker = "*" if account.is_active else " "
         print(
@@ -209,7 +216,7 @@ def cmd_analyze(args: argparse.Namespace, settings, repo_root: Path) -> int:
     if args.mock:
         output = local_advisor_output(account_id, snapshot_id, balance, snapshot.metrics)
     else:
-        output = OpenRouterAdvisor(settings.openrouter, repo_root).analyze(
+        output = OpenAICompatibleAdvisor(settings.llm, repo_root).analyze(
             account_id=account_id,
             snapshot_id=snapshot_id,
             balance=balance,
@@ -291,8 +298,23 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
         agent_briefs_markdown=agent_briefs_markdown,
     )
     if args.agentic:
+        llm_settings = settings.llm
+        if args.llm_max_calls is not None or args.llm_max_cost_usd is not None:
+            llm_settings = replace(
+                llm_settings,
+                max_llm_calls=(
+                    args.llm_max_calls
+                    if args.llm_max_calls is not None
+                    else llm_settings.max_llm_calls
+                ),
+                max_cost_usd=(
+                    args.llm_max_cost_usd
+                    if args.llm_max_cost_usd is not None
+                    else llm_settings.max_cost_usd
+                ),
+            )
         workflow = run_llm_agent_workflow(
-            settings=settings.openrouter,
+            settings=llm_settings,
             repo_root=repo_root,
             account_id=account_id,
             snapshot=snapshot,
@@ -317,7 +339,7 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
         print(f"workflow_trace={paths.workflow_trace_path}")
         report_markdown, usage = workflow.final_report, workflow.final_usage
     else:
-        advisor = OpenRouterAdvisor(settings.openrouter, repo_root)
+        advisor = OpenAICompatibleAdvisor(settings.llm, repo_root)
         report_markdown, usage = advisor.generate_markdown_report(prompt=prompt, deep=args.deep)
     write_text(paths.report_path, report_markdown)
     print(f"report={paths.report_path}")

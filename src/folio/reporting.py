@@ -42,7 +42,7 @@ type: portfolio-analysis-report
 input_snapshot: portfolio_snapshot.md
 report_period: {period}
 report_date: {report_date}
-analyst: OpenRouter LLM
+analyst: LLM
 lenses_applied: [risk, macro, value, momentum, behavioral, tax, devils-advocate]
 schema_version: 1.0
 ---

@@ -6,10 +6,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Any, TypedDict
 
-from .advisor import AdvisorError, OpenRouterAdvisor
-from .config import OpenRouterSettings
+from .advisor import AdvisorError, OpenAICompatibleAdvisor
+from .config import LLMSettings
 from .models import AgentRun, Position, Snapshot, WorkflowEvent
 from .reporting import infer_asset_class, safe_ratio, sorted_positions
 
@@ -44,6 +45,32 @@ class AgentWorkflowResult:
     final_report: str
     final_usage: dict[str, Any]
     trace_markdown: str
+
+
+@dataclass
+class LLMBudget:
+    max_calls: int
+    max_cost_usd: float | None
+    calls_made: int = 0
+    cost_usd: float = 0.0
+    lock: Any = field(default_factory=Lock, repr=False, compare=False)
+
+    def reserve(self, operation: str) -> None:
+        with self.lock:
+            if self.calls_made >= self.max_calls:
+                raise AdvisorError(
+                    f"LLM call budget exceeded before {operation}: "
+                    f"{self.calls_made}/{self.max_calls} calls used"
+                )
+            self.calls_made += 1
+
+    def record_usage(self, usage: dict[str, Any]) -> None:
+        with self.lock:
+            self.cost_usd += float(usage.get("cost", 0) or 0)
+            if self.max_cost_usd is not None and self.cost_usd > self.max_cost_usd:
+                raise AdvisorError(
+                    f"LLM cost budget exceeded: ${self.cost_usd:.4f} > ${self.max_cost_usd:.4f}"
+                )
 
 
 AGENT_SPECS = [
@@ -120,7 +147,7 @@ class AgentWorkflowState(TypedDict, total=False):
 
 
 def run_llm_agent_workflow(
-    settings: OpenRouterSettings,
+    settings: LLMSettings,
     repo_root: Path,
     account_id: str,
     snapshot: Snapshot,
@@ -137,6 +164,13 @@ def run_llm_agent_workflow(
     if engine not in {"langgraph", "local"}:
         raise ValueError("engine must be one of: langgraph, local")
     selected_engine = engine
+    planned_calls = len(AGENT_SPECS) + max(debate_rounds, 0) * len(DEBATE_SPECS) + 1
+    if planned_calls > settings.max_llm_calls:
+        raise AdvisorError(
+            f"Planned agent workflow requires {planned_calls} LLM calls, "
+            f"but LLM_MAX_CALLS is {settings.max_llm_calls}"
+        )
+    budget = LLMBudget(settings.max_llm_calls, settings.max_cost_usd)
     if selected_engine == "langgraph":
         runs, events = _run_langgraph_agent_workflow(
             settings=settings,
@@ -149,6 +183,7 @@ def run_llm_agent_workflow(
             deep=deep,
             debate_rounds=debate_rounds,
             max_retries=max_retries,
+            budget=budget,
         )
     else:
         runs, events = _run_local_agent_workflow(
@@ -163,6 +198,7 @@ def run_llm_agent_workflow(
             debate_rounds=debate_rounds,
             max_retries=max_retries,
             max_workers=max_workers,
+            budget=budget,
         )
 
     report_markdown, usage, _agent_outputs = synthesize_llm_agent_report(
@@ -173,7 +209,9 @@ def run_llm_agent_workflow(
         agent_runs=runs,
         report_prompt=report_prompt,
         deep=deep,
+        budget=budget,
     )
+    budget.record_usage(usage)
     events.append(
         WorkflowEvent(
             ts=datetime.now(tz=UTC),
@@ -209,7 +247,7 @@ def build_agent_briefs(
 
 
 def run_llm_agent_team(
-    settings: OpenRouterSettings,
+    settings: LLMSettings,
     repo_root: Path,
     account_id: str,
     snapshot: Snapshot,
@@ -218,7 +256,7 @@ def run_llm_agent_team(
     liquidity_need: LiquidityNeed,
     deep: bool = False,
 ) -> list[AgentRun]:
-    advisor = OpenRouterAdvisor(settings, repo_root)
+    advisor = OpenAICompatibleAdvisor(settings, repo_root)
     runs: list[AgentRun] = []
     prior_outputs: list[str] = []
     for spec in AGENT_SPECS:
@@ -236,6 +274,7 @@ def run_llm_agent_team(
             model=model,
             operation=f"agent:{spec.role}",
             timeout=70,
+            max_tokens=settings.max_output_tokens,
         )
         run = AgentRun(
             id=None,
@@ -267,7 +306,7 @@ def langgraph_available() -> bool:
 
 
 def _run_local_agent_workflow(
-    settings: OpenRouterSettings,
+    settings: LLMSettings,
     repo_root: Path,
     account_id: str,
     snapshot: Snapshot,
@@ -278,8 +317,9 @@ def _run_local_agent_workflow(
     debate_rounds: int,
     max_retries: int,
     max_workers: int,
+    budget: LLMBudget,
 ) -> tuple[list[AgentRun], list[WorkflowEvent]]:
-    advisor = OpenRouterAdvisor(settings, repo_root)
+    advisor = OpenAICompatibleAdvisor(settings, repo_root)
     events: list[WorkflowEvent] = [
         WorkflowEvent(
             ts=datetime.now(tz=UTC),
@@ -306,6 +346,7 @@ def _run_local_agent_workflow(
                 deep,
                 max_retries,
                 0,
+                budget,
             ): spec
             for spec in AGENT_SPECS
         }
@@ -331,6 +372,7 @@ def _run_local_agent_workflow(
                 deep=deep,
                 max_retries=max_retries,
                 debate_round=round_no,
+                budget=budget,
             )
             runs.append(run)
             events.extend(run_events)
@@ -339,7 +381,7 @@ def _run_local_agent_workflow(
 
 
 def _run_langgraph_agent_workflow(
-    settings: OpenRouterSettings,
+    settings: LLMSettings,
     repo_root: Path,
     account_id: str,
     snapshot: Snapshot,
@@ -349,6 +391,7 @@ def _run_langgraph_agent_workflow(
     deep: bool,
     debate_rounds: int,
     max_retries: int,
+    budget: LLMBudget,
 ) -> tuple[list[AgentRun], list[WorkflowEvent]]:
     try:
         from langgraph.graph import END, START, StateGraph
@@ -358,7 +401,7 @@ def _run_langgraph_agent_workflow(
             "`python -m pip install -e '.[dev]'`."
         ) from exc
 
-    advisor = OpenRouterAdvisor(settings, repo_root)
+    advisor = OpenAICompatibleAdvisor(settings, repo_root)
     builder = StateGraph(AgentWorkflowState)
 
     def make_agent_node(spec: AgentSpec):
@@ -377,6 +420,7 @@ def _run_langgraph_agent_workflow(
                 deep=deep,
                 max_retries=max_retries,
                 debate_round=0,
+                budget=budget,
             )
             return {"runs": [run], "events": events}
 
@@ -411,6 +455,7 @@ def _run_langgraph_agent_workflow(
                     deep=deep,
                     max_retries=max_retries,
                     debate_round=round_no,
+                    budget=budget,
                 )
                 debate_runs.append(run)
                 events.extend(run_events)
@@ -438,8 +483,8 @@ def _run_langgraph_agent_workflow(
 
 
 def _run_single_agent_with_retry(
-    advisor: OpenRouterAdvisor,
-    settings: OpenRouterSettings,
+    advisor: OpenAICompatibleAdvisor,
+    settings: LLMSettings,
     account_id: str,
     snapshot: Snapshot,
     snapshot_markdown: str,
@@ -450,6 +495,7 @@ def _run_single_agent_with_retry(
     deep: bool,
     max_retries: int,
     debate_round: int,
+    budget: LLMBudget,
 ) -> tuple[AgentRun, list[WorkflowEvent]]:
     events: list[WorkflowEvent] = []
     attempts = max(1, max_retries + 1)
@@ -457,12 +503,17 @@ def _run_single_agent_with_retry(
     for attempt in range(1, attempts + 1):
         started = time.monotonic()
         try:
+            budget.reserve(spec.role)
             prompt = render_agent_prompt(
                 spec=spec,
-                snapshot_markdown=snapshot_markdown,
-                deterministic_briefs_markdown=deterministic_briefs_markdown,
+                snapshot_markdown=clip_text(snapshot_markdown, settings.max_context_chars),
+                deterministic_briefs_markdown=clip_text(
+                    deterministic_briefs_markdown, settings.max_context_chars // 3
+                ),
                 liquidity_need=liquidity_need,
-                prior_outputs=prior_outputs,
+                prior_outputs=[
+                    clip_text(output, settings.max_agent_output_chars) for output in prior_outputs
+                ],
             )
             output, usage = advisor.generate_markdown(
                 system_prompt=agent_system_prompt(spec),
@@ -470,7 +521,9 @@ def _run_single_agent_with_retry(
                 model=model,
                 operation=f"agent:{spec.role}",
                 timeout=90,
+                max_tokens=settings.max_output_tokens,
             )
+            budget.record_usage(usage)
             validate_agent_output(spec, output)
             duration = time.monotonic() - started
             events.append(
@@ -537,17 +590,22 @@ def order_agent_runs(runs: list[AgentRun]) -> list[AgentRun]:
 
 
 def synthesize_llm_agent_report(
-    settings: OpenRouterSettings,
+    settings: LLMSettings,
     repo_root: Path,
     snapshot_markdown: str,
     deterministic_briefs_markdown: str,
     agent_runs: list[AgentRun],
     report_prompt: str,
     deep: bool = False,
+    budget: LLMBudget | None = None,
 ) -> tuple[str, dict[str, Any], str]:
-    advisor = OpenRouterAdvisor(settings, repo_root)
+    advisor = OpenAICompatibleAdvisor(settings, repo_root)
     model = settings.advisor_deep_model if deep else settings.advisor_model
-    agent_outputs = render_agent_runs_markdown(agent_runs)
+    agent_outputs = render_agent_runs_markdown(
+        agent_runs, max_output_chars=settings.max_agent_output_chars
+    )
+    if budget is not None:
+        budget.reserve("Portfolio Manager Synthesis")
     prompt = (
         f"{report_prompt}\n\n"
         "multi_agent_outputs.md:\n\n"
@@ -566,6 +624,7 @@ def synthesize_llm_agent_report(
         model=model,
         operation="agent:Portfolio Manager Synthesis",
         timeout=120,
+        max_tokens=settings.max_report_tokens,
     )
     return output, usage, agent_outputs
 
@@ -611,7 +670,7 @@ def agent_system_prompt(spec: AgentSpec) -> str:
     )
 
 
-def choose_agent_model(settings: OpenRouterSettings, route: str, deep: bool = False) -> str:
+def choose_agent_model(settings: LLMSettings, route: str, deep: bool = False) -> str:
     if deep:
         return settings.advisor_deep_model
     if route == "fast":
@@ -619,7 +678,9 @@ def choose_agent_model(settings: OpenRouterSettings, route: str, deep: bool = Fa
     return settings.advisor_model
 
 
-def render_agent_runs_markdown(runs: list[AgentRun]) -> str:
+def render_agent_runs_markdown(
+    runs: list[AgentRun], max_output_chars: int | None = None
+) -> str:
     lines = [
         "---",
         "type: multi-agent-runs",
@@ -637,10 +698,16 @@ def render_agent_runs_markdown(runs: list[AgentRun]) -> str:
                 f"- model: `{run.model}`",
                 f"- token_usage: `{run.token_usage}`",
                 "",
-                run.output_markdown.strip(),
+                clip_text(run.output_markdown.strip(), max_output_chars),
             ]
         )
     return "\n".join(lines) + "\n"
+
+
+def clip_text(value: str, max_chars: int | None) -> str:
+    if max_chars is None or max_chars <= 0 or len(value) <= max_chars:
+        return value
+    return value[:max_chars].rstrip() + "\n\n[truncated for LLM context budget]"
 
 
 def render_workflow_trace_markdown(

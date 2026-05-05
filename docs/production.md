@@ -1,7 +1,7 @@
 # Production Runbook
 
-`folio` is deployed as a local CLI/TUI package on the machine that owns the KIS
-and OpenRouter credentials.
+`kis-folio` is deployed as a local CLI/TUI package on the machine that owns the
+KIS and LLM provider credentials.
 
 ## Install
 
@@ -63,6 +63,32 @@ This writes:
 Use `--no-llm` to generate only the fact snapshot without an OpenRouter call.
 Use `--agentic` to run role-by-role LLM agents before final synthesis.
 
+## LLM Providers
+
+The client uses an OpenAI-compatible `/chat/completions` API. OpenRouter is the
+default, but users can choose another compatible gateway:
+
+```bash
+LLM_PROVIDER=openrouter
+LLM_API_KEY=sk-your-key
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL_ADVISOR=anthropic/claude-sonnet-4.6
+LLM_MODEL_FAST=anthropic/claude-haiku-4.5
+```
+
+Cost controls:
+
+```bash
+LLM_MAX_CALLS=12
+LLM_MAX_COST_USD=0.50
+LLM_MAX_OUTPUT_TOKENS=1600
+LLM_MAX_REPORT_TOKENS=5000
+LLM_MAX_AGENT_OUTPUT_CHARS=5000
+```
+
+`LLM_MAX_COST_USD` depends on provider-reported `usage.cost`. If a provider does
+not report cost, rely on call and token limits.
+
 ## Multi-Agent Workflow
 
 `folio report --agentic` executes:
@@ -85,6 +111,8 @@ Production controls:
 - `--debate-rounds N`: number of bull/bear/risk review rounds. Default: `1`.
 - `--agent-retries N`: retry count per agent node after a failed LLM call. Default: `2`.
 - `--agent-workers N`: local executor parallelism when `--agent-engine local` is used. Default: `4`.
+- `--llm-max-calls N`: CLI override for the LLM call cap.
+- `--llm-max-cost-usd N`: CLI override for the reported cost cap.
 - `--deep`: route all agents to the deep model.
 
 The workflow trace records engine selection, node attempts, duration, and

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import Settings
 
-PLACEHOLDER_PREFIXES = ("your_", "sk-or-your")
+PLACEHOLDER_PREFIXES = ("your_", "sk-or-your", "sk-your")
 
 
 @dataclass(frozen=True)
@@ -48,14 +48,20 @@ def validate_settings(settings: Settings, repo_root: Path) -> list[DiagnosticIss
         issues.append(
             DiagnosticIssue("error", "KIS_ACNT_PRDT_CD_MAIN must be the 2 digit product code")
         )
-    if looks_placeholder(settings.openrouter.api_key):
+    if looks_placeholder(settings.llm.api_key):
+        issues.append(DiagnosticIssue("error", "LLM_API_KEY is missing or still a placeholder"))
+    if not settings.llm.base_url.startswith("https://"):
+        issues.append(DiagnosticIssue("error", "LLM_BASE_URL must use https"))
+    if settings.llm.provider == "openrouter" and not settings.llm.base_url.startswith(
+        "https://openrouter.ai/api/v1"
+    ):
         issues.append(
-            DiagnosticIssue("error", "OPENROUTER_API_KEY is missing or still a placeholder")
+            DiagnosticIssue("warning", "LLM_PROVIDER=openrouter but LLM_BASE_URL is not OpenRouter")
         )
-    if not settings.openrouter.base_url.startswith("https://openrouter.ai/api/v1"):
-        issues.append(
-            DiagnosticIssue("warning", "OPENROUTER_BASE_URL is not the expected OpenRouter URL")
-        )
+    if settings.llm.max_llm_calls <= 0:
+        issues.append(DiagnosticIssue("error", "LLM_MAX_CALLS must be positive"))
+    if settings.llm.max_output_tokens <= 0 or settings.llm.max_report_tokens <= 0:
+        issues.append(DiagnosticIssue("error", "LLM token limits must be positive"))
     if not (repo_root / "prompts" / "advisor.md").exists() and not (
         repo_root / "src" / "folio" / "prompts" / "advisor.md"
     ).exists():

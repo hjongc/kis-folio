@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from folio.agentic import (
     LiquidityNeed,
     build_agent_briefs,
@@ -143,15 +145,17 @@ def test_run_local_agent_workflow_with_fake_advisor(monkeypatch) -> None:
             self.settings = settings
             self.repo_root = repo_root
 
-        def generate_markdown(self, system_prompt, user_prompt, model, operation, timeout):
-            del system_prompt, user_prompt, timeout
+        def generate_markdown(
+            self, system_prompt, user_prompt, model, operation, timeout, max_tokens=None
+        ):
+            del system_prompt, user_prompt, timeout, max_tokens
             return (
                 f"{operation} using {model}. "
                 "This is a sufficiently detailed fake portfolio analysis output.",
                 {"total_tokens": 3, "cost": 0.001},
             )
 
-    monkeypatch.setattr("folio.agentic.OpenRouterAdvisor", FakeAdvisor)
+    monkeypatch.setattr("folio.agentic.OpenAICompatibleAdvisor", FakeAdvisor)
     balance = mock_balance("main")
     snapshot = Snapshot(
         id=1,
@@ -200,15 +204,17 @@ def test_run_langgraph_agent_workflow_with_fake_advisor(monkeypatch) -> None:
             self.settings = settings
             self.repo_root = repo_root
 
-        def generate_markdown(self, system_prompt, user_prompt, model, operation, timeout):
-            del system_prompt, user_prompt, timeout
+        def generate_markdown(
+            self, system_prompt, user_prompt, model, operation, timeout, max_tokens=None
+        ):
+            del system_prompt, user_prompt, timeout, max_tokens
             return (
                 f"{operation} using {model}. "
                 "This fake output is long enough to pass validation.",
                 {"total_tokens": 2},
             )
 
-    monkeypatch.setattr("folio.agentic.OpenRouterAdvisor", FakeAdvisor)
+    monkeypatch.setattr("folio.agentic.OpenAICompatibleAdvisor", FakeAdvisor)
     balance = mock_balance("main")
     snapshot = Snapshot(
         id=1,
@@ -248,6 +254,48 @@ def test_run_langgraph_agent_workflow_with_fake_advisor(monkeypatch) -> None:
     assert len(result.agent_runs) == 10
     assert result.agent_runs[0].role == "Allocation Analyst"
     assert "engine: langgraph" in result.trace_markdown
+
+
+def test_agent_workflow_rejects_excessive_planned_llm_calls(monkeypatch) -> None:
+    class FakeAdvisor:
+        pass
+
+    monkeypatch.setattr("folio.agentic.OpenAICompatibleAdvisor", FakeAdvisor)
+    balance = mock_balance("main")
+    snapshot = Snapshot(
+        id=1,
+        account_id="main",
+        ts=balance.ts,
+        balance=balance,
+        metrics=calculate_metrics(balance),
+    )
+    settings = OpenRouterSettings(
+        api_key="key",
+        base_url="https://openrouter.ai/api/v1",
+        site_url="http://localhost",
+        app_name="folio",
+        advisor_model="advisor",
+        advisor_deep_model="deep",
+        fast_model="fast",
+        dev_model="dev",
+        test_model="test",
+        extract_model="extract",
+        max_llm_calls=3,
+    )
+
+    with pytest.raises(Exception, match="requires 11 LLM calls"):
+        run_llm_agent_workflow(
+            settings=settings,
+            repo_root=Path("."),
+            account_id="main",
+            snapshot=snapshot,
+            snapshot_markdown="SNAPSHOT",
+            deterministic_briefs_markdown="BRIEFS",
+            liquidity_need=LiquidityNeed(),
+            report_prompt="REPORT",
+            engine="local",
+            debate_rounds=1,
+        )
 
 
 def test_render_portfolio_svg_contains_svg() -> None:

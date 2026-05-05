@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .analyzer import portfolio_summary
-from .config import OpenRouterSettings
+from .config import LLMSettings
 from .logging_utils import external_call
 from .models import AdvisorCards, AdvisorOutput, Balance, Metrics
 from .reporting import SYSTEM_PROMPT
@@ -35,8 +35,8 @@ def prompt_git_ref(repo_root: Path) -> str:
     return result.stdout.strip() or "nogit"
 
 
-class OpenRouterAdvisor:
-    def __init__(self, settings: OpenRouterSettings, repo_root: Path) -> None:
+class OpenAICompatibleAdvisor:
+    def __init__(self, settings: LLMSettings, repo_root: Path) -> None:
         self.settings = settings
         self.repo_root = repo_root
 
@@ -49,13 +49,14 @@ class OpenRouterAdvisor:
         deep: bool = False,
     ) -> AdvisorOutput:
         if not self.settings.api_key:
-            raise AdvisorError("OpenRouter API key is not configured")
+            raise AdvisorError(f"{self.settings.provider} API key is not configured")
         model = self.settings.advisor_deep_model if deep else self.settings.advisor_model
         prompt = read_advisor_prompt(self.repo_root)
         summary = portfolio_summary(balance, metrics)
         response = self._chat(
             model=model,
             system_prompt=prompt,
+            max_tokens=min(self.settings.max_output_tokens, 1000),
             user_payload={
                 "instruction": "Review this portfolio summary and return JSON cards.",
                 "output_contract": (
@@ -84,7 +85,13 @@ class OpenRouterAdvisor:
             token_usage=response.get("usage", {}),
         )
 
-    def _chat(self, model: str, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+    def _chat(
+        self,
+        model: str,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        max_tokens: int | None = None,
+    ) -> dict[str, Any]:
         body = {
             "model": model,
             "messages": [
@@ -94,26 +101,23 @@ class OpenRouterAdvisor:
             "response_format": {"type": "json_object"},
             "temperature": 0.2,
         }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         req = urllib.request.Request(
             self.settings.base_url.rstrip("/") + "/chat/completions",
             data=json.dumps(body).encode("utf-8"),
-            headers={
-                "content-type": "application/json",
-                "authorization": f"Bearer {self.settings.api_key}",
-                "http-referer": self.settings.site_url,
-                "x-title": self.settings.app_name,
-            },
+            headers=self.headers(),
             method="POST",
         )
-        with external_call("openrouter", f"chat_completions:{model}"):
+        with external_call(self.settings.provider, f"chat_completions:{model}"):
             try:
                 with urllib.request.urlopen(req, timeout=35) as response:
                     raw = json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
-                raise AdvisorError(f"OpenRouter HTTP {exc.code}: {detail}") from exc
+                raise AdvisorError(f"{self.settings.provider} HTTP {exc.code}: {detail}") from exc
             except urllib.error.URLError as exc:
-                raise AdvisorError(f"OpenRouter network error: {exc.reason}") from exc
+                raise AdvisorError(f"{self.settings.provider} network error: {exc.reason}") from exc
         content = raw["choices"][0]["message"]["content"]
         return {"content": content, "usage": raw.get("usage", {})}
 
@@ -121,7 +125,7 @@ class OpenRouterAdvisor:
         self, prompt: str, deep: bool = False
     ) -> tuple[str, dict[str, Any]]:
         if not self.settings.api_key:
-            raise AdvisorError("OpenRouter API key is not configured")
+            raise AdvisorError(f"{self.settings.provider} API key is not configured")
         model = self.settings.advisor_deep_model if deep else self.settings.advisor_model
         return self.generate_markdown(
             system_prompt=SYSTEM_PROMPT,
@@ -129,6 +133,7 @@ class OpenRouterAdvisor:
             model=model,
             operation=f"markdown_report:{model}",
             timeout=60,
+            max_tokens=self.settings.max_report_tokens,
         )
 
     def generate_markdown(
@@ -138,9 +143,10 @@ class OpenRouterAdvisor:
         model: str,
         operation: str,
         timeout: float = 60,
+        max_tokens: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
         if not self.settings.api_key:
-            raise AdvisorError("OpenRouter API key is not configured")
+            raise AdvisorError(f"{self.settings.provider} API key is not configured")
         body = {
             "model": model,
             "messages": [
@@ -149,27 +155,37 @@ class OpenRouterAdvisor:
             ],
             "temperature": 0.2,
         }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         req = urllib.request.Request(
             self.settings.base_url.rstrip("/") + "/chat/completions",
             data=json.dumps(body).encode("utf-8"),
-            headers={
-                "content-type": "application/json",
-                "authorization": f"Bearer {self.settings.api_key}",
-                "http-referer": self.settings.site_url,
-                "x-title": self.settings.app_name,
-            },
+            headers=self.headers(),
             method="POST",
         )
-        with external_call("openrouter", operation):
+        with external_call(self.settings.provider, operation):
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     raw = json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
-                raise AdvisorError(f"OpenRouter HTTP {exc.code}: {detail}") from exc
+                raise AdvisorError(f"{self.settings.provider} HTTP {exc.code}: {detail}") from exc
             except urllib.error.URLError as exc:
-                raise AdvisorError(f"OpenRouter network error: {exc.reason}") from exc
+                raise AdvisorError(f"{self.settings.provider} network error: {exc.reason}") from exc
         return raw["choices"][0]["message"]["content"], raw.get("usage", {})
+
+    def headers(self) -> dict[str, str]:
+        headers = {
+            "content-type": "application/json",
+            "authorization": f"Bearer {self.settings.api_key}",
+        }
+        if self.settings.provider.lower() == "openrouter":
+            headers["http-referer"] = self.settings.site_url
+            headers["x-title"] = self.settings.app_name
+        return headers
+
+
+OpenRouterAdvisor = OpenAICompatibleAdvisor
 
 
 def parse_cards(content: str) -> AdvisorCards:
