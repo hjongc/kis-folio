@@ -160,7 +160,7 @@ def run_dashboard(
                         yield Static(
                             (
                                 "[b]Agent Workflow[/b]\n"
-                                "7 analysts -> 3 debate/review agents x 3 rounds "
+                                "7 analysts -> conditional debate/review up to 3 rounds "
                                 "-> PM synthesis\n\n"
                                 f"{read_latest_workflow_trace()}"
                             ),

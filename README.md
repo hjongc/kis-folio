@@ -131,8 +131,9 @@ folio report --agentic \
   --agent-retries 2
 ```
 
-기본 agentic workflow는 7개 초기 분석가, 라운드당 3개 debate/review agent,
-그리고 1개 Portfolio Manager synthesis로 구성됩니다. 기본 debate round는 3회입니다.
+agentic workflow는 7개 초기 분석가, 라운드당 3개 debate/review agent,
+그리고 1개 Portfolio Manager synthesis로 구성됩니다. 기본 debate round는 최대 3회이며,
+에이전트 의견이 수렴하면 토론을 건너뛰거나 조기 종료합니다.
 
 특정 날짜까지 현금이 필요한 경우:
 

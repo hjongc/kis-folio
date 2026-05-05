@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -45,6 +46,14 @@ class AgentWorkflowResult:
     final_report: str
     final_usage: dict[str, Any]
     trace_markdown: str
+
+
+@dataclass(frozen=True)
+class DebateAssessment:
+    should_continue: bool
+    reason: str
+    action_labels: tuple[str, ...]
+    risk_labels: tuple[str, ...]
 
 
 @dataclass
@@ -131,6 +140,10 @@ DEBATE_SPECS = [
 ]
 
 
+ACTION_LABELS = {"increase", "hold", "trim", "exit", "watch"}
+RISK_LABELS = {"low", "medium", "high"}
+
+
 class AgentWorkflowState(TypedDict, total=False):
     runs: Annotated[list[AgentRun], operator.add]
     events: Annotated[list[WorkflowEvent], operator.add]
@@ -154,7 +167,8 @@ def run_llm_agent_workflow(
     if engine not in {"langgraph", "local"}:
         raise ValueError("engine must be one of: langgraph, local")
     selected_engine = engine
-    planned_calls = len(AGENT_SPECS) + max(debate_rounds, 0) * len(DEBATE_SPECS) + 1
+    max_debate_rounds = max(debate_rounds, 0)
+    max_planned_calls = len(AGENT_SPECS) + max_debate_rounds * len(DEBATE_SPECS) + 1
     usage_tracker = LLMUsageTracker()
     if selected_engine == "langgraph":
         runs, events = _run_langgraph_agent_workflow(
@@ -166,7 +180,7 @@ def run_llm_agent_workflow(
             deterministic_briefs_markdown=deterministic_briefs_markdown,
             liquidity_need=liquidity_need,
             deep=deep,
-            debate_rounds=debate_rounds,
+            debate_rounds=max_debate_rounds,
             max_retries=max_retries,
             usage_tracker=usage_tracker,
         )
@@ -180,7 +194,7 @@ def run_llm_agent_workflow(
             deterministic_briefs_markdown=deterministic_briefs_markdown,
             liquidity_need=liquidity_need,
             deep=deep,
-            debate_rounds=debate_rounds,
+            debate_rounds=max_debate_rounds,
             max_retries=max_retries,
             max_workers=max_workers,
             usage_tracker=usage_tracker,
@@ -207,7 +221,8 @@ def run_llm_agent_workflow(
         input_json={
             "role": "Portfolio Manager Synthesis",
             "source_agent_runs": len(runs),
-            "debate_rounds": max(debate_rounds, 0),
+            "debate_rounds": completed_debate_rounds(runs),
+            "max_debate_rounds": max_debate_rounds,
         },
         output_markdown=report_markdown,
         token_usage=usage,
@@ -233,8 +248,8 @@ def run_llm_agent_workflow(
             selected_engine,
             events,
             runs_with_pm,
-            planned_calls=planned_calls,
-            debate_rounds=max(debate_rounds, 0),
+            max_planned_calls=max_planned_calls,
+            max_debate_rounds=max_debate_rounds,
         ),
     )
 
@@ -335,7 +350,10 @@ def _run_local_agent_workflow(
             ts=datetime.now(tz=UTC),
             node="workflow",
             status="start",
-            detail=f"engine=local, analyst_workers={max_workers}, debate_rounds={debate_rounds}",
+            detail=(
+                f"engine=local, analyst_workers={max_workers}, "
+                f"max_debate_rounds={debate_rounds}"
+            ),
         )
     ]
     runs: list[AgentRun] = []
@@ -367,6 +385,10 @@ def _run_local_agent_workflow(
     runs.sort(key=lambda run: [spec.role for spec in AGENT_SPECS].index(run.role))
 
     for round_no in range(1, max(debate_rounds, 0) + 1):
+        assessment = assess_debate_need(runs, round_no - 1, debate_rounds)
+        events.append(debate_assessment_event(round_no, assessment))
+        if not assessment.should_continue:
+            break
         prior_outputs = [f"## {run.role}\n\n{run.output_markdown}" for run in runs]
         for spec in DEBATE_SPECS:
             run, run_events = _run_single_agent_with_retry(
@@ -449,8 +471,14 @@ def _run_langgraph_agent_workflow(
         runs = order_agent_runs(list(state.get("runs", [])))
         debate_runs: list[AgentRun] = []
         events: list[WorkflowEvent] = []
-        prior_outputs = [f"## {run.role}\n\n{run.output_markdown}" for run in runs]
         for round_no in range(1, debate_rounds + 1):
+            assessment = assess_debate_need([*runs, *debate_runs], round_no - 1, debate_rounds)
+            events.append(debate_assessment_event(round_no, assessment))
+            if not assessment.should_continue:
+                break
+            prior_outputs = [
+                f"## {run.role}\n\n{run.output_markdown}" for run in [*runs, *debate_runs]
+            ]
             for spec in DEBATE_SPECS:
                 run, run_events = _run_single_agent_with_retry(
                     advisor=advisor,
@@ -599,6 +627,72 @@ def order_agent_runs(runs: list[AgentRun]) -> list[AgentRun]:
     return sorted(runs, key=lambda run: role_order.get(run.role, len(role_order)))
 
 
+def completed_debate_rounds(runs: list[AgentRun]) -> int:
+    return max((int(run.input_json.get("debate_round", 0) or 0) for run in runs), default=0)
+
+
+def assess_debate_need(
+    runs: list[AgentRun],
+    completed_rounds: int,
+    max_rounds: int,
+) -> DebateAssessment:
+    if completed_rounds >= max_rounds:
+        return DebateAssessment(
+            False,
+            "max debate rounds reached",
+            extract_unique_labels(runs, ACTION_LABELS),
+            extract_unique_labels(runs, RISK_LABELS),
+        )
+    action_labels = extract_unique_labels(runs, ACTION_LABELS)
+    risk_labels = extract_unique_labels(runs, RISK_LABELS)
+    if len(action_labels) >= 2:
+        return DebateAssessment(True, "conflicting action labels", action_labels, risk_labels)
+    if "high" in risk_labels and "low" in risk_labels:
+        return DebateAssessment(True, "conflicting risk labels", action_labels, risk_labels)
+    min_structured_outputs = max(3, len(AGENT_SPECS) // 2)
+    if completed_rounds == 0 and count_structured_outputs(runs) < min_structured_outputs:
+        return DebateAssessment(
+            True,
+            "insufficient structured opinions",
+            action_labels,
+            risk_labels,
+        )
+    return DebateAssessment(False, "consensus or no material conflict", action_labels, risk_labels)
+
+
+def extract_unique_labels(runs: list[AgentRun], allowed: set[str]) -> tuple[str, ...]:
+    labels: set[str] = set()
+    for run in runs:
+        labels.update(extract_labels(run.output_markdown, allowed))
+    return tuple(sorted(labels))
+
+
+def count_structured_outputs(runs: list[AgentRun]) -> int:
+    return sum(1 for run in runs if extract_labels(run.output_markdown, ACTION_LABELS))
+
+
+def extract_labels(markdown: str, allowed: set[str]) -> set[str]:
+    lowered = markdown.lower()
+    labels = set(re.findall(r"(?:action_label|action|risk_level|risk)\s*[:=]\s*([a-z]+)", lowered))
+    labels.update(label for label in allowed if f"`{label}`" in lowered)
+    labels.update(label for label in allowed if f"**{label}**" in lowered)
+    return labels & allowed
+
+
+def debate_assessment_event(round_no: int, assessment: DebateAssessment) -> WorkflowEvent:
+    status = "continue" if assessment.should_continue else "skip"
+    return WorkflowEvent(
+        ts=datetime.now(tz=UTC),
+        node="Debate Controller",
+        status=status,
+        detail=(
+            f"round={round_no}; reason={assessment.reason}; "
+            f"actions={','.join(assessment.action_labels) or '-'}; "
+            f"risks={','.join(assessment.risk_labels) or '-'}"
+        ),
+    )
+
+
 def synthesize_llm_agent_report(
     settings: LLMSettings,
     repo_root: Path,
@@ -655,6 +749,8 @@ def render_agent_prompt(
 
 출력 규칙:
 - 5개 이하 bullet로 핵심 발견을 작성한다.
+- 첫 줄에 반드시 `action_label: Increase|Hold|Trim|Exit|Watch` 중 하나를 작성한다.
+- 둘째 줄에 반드시 `risk_level: low|medium|high` 중 하나를 작성한다.
 - 데이터가 없으면 반드시 "데이터 부족"이라고 쓴다.
 - 필요한 경우 trigger/action/size 형태의 실행 규칙을 제안한다.
 - 신규 종목 매수 권유는 하지 않는다.
@@ -734,13 +830,14 @@ def render_workflow_trace_markdown(
     engine: str,
     events: list[WorkflowEvent],
     runs: list[AgentRun],
-    planned_calls: int | None = None,
-    debate_rounds: int | None = None,
+    max_planned_calls: int | None = None,
+    max_debate_rounds: int | None = None,
 ) -> str:
     total_tokens = sum(int(run.token_usage.get("total_tokens", 0) or 0) for run in runs)
     total_cost = sum(float(run.token_usage.get("cost", 0) or 0) for run in runs)
     pm_runs = [run for run in runs if run.role == "Portfolio Manager Synthesis"]
     debate_runs = [run for run in runs if int(run.input_json.get("debate_round", 0) or 0) > 0]
+    max_calls = max_planned_calls if max_planned_calls is not None else "unknown"
     lines = [
         "---",
         "type: portfolio-workflow-trace",
@@ -755,10 +852,11 @@ def render_workflow_trace_markdown(
         f"- engine: `{engine}`",
         f"- agent_runs: {len(runs)}",
         f"- analyst_agents: {len(AGENT_SPECS)}",
-        f"- debate_rounds: {debate_rounds if debate_rounds is not None else 'unknown'}",
+        f"- max_debate_rounds: {max_debate_rounds if max_debate_rounds is not None else 'unknown'}",
+        f"- completed_debate_rounds: {completed_debate_rounds(runs)}",
         f"- debate_agent_runs: {len(debate_runs)}",
         f"- portfolio_manager_runs: {len(pm_runs)}",
-        f"- planned_llm_calls: {planned_calls if planned_calls is not None else 'unknown'}",
+        f"- max_planned_llm_calls: {max_calls}",
         f"- actual_llm_calls: {len(runs)}",
         f"- total_tokens_reported: {total_tokens}",
         f"- total_cost_reported: {total_cost:.6f}",

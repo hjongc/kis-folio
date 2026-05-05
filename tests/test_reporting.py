@@ -2,10 +2,12 @@ from datetime import date
 from pathlib import Path
 
 from folio.agentic import (
+    AGENT_SPECS,
     LiquidityNeed,
     build_agent_briefs,
     choose_agent_model,
     render_agent_briefs_markdown,
+    render_agent_prompt,
     render_agent_runs_markdown,
     render_workflow_trace_markdown,
     report_has_end_marker,
@@ -51,6 +53,13 @@ def test_render_report_prompt_includes_lenses_template_and_agents() -> None:
     assert "## End of Report" in prompt
     assert "SNAPSHOT" in prompt
     assert "AGENT_BRIEFS" in prompt
+
+
+def test_render_agent_prompt_requires_structured_debate_signals() -> None:
+    prompt = render_agent_prompt(AGENT_SPECS[0], "SNAPSHOT", "BRIEFS", LiquidityNeed(), [])
+
+    assert "action_label: Increase|Hold|Trim|Exit|Watch" in prompt
+    assert "risk_level: low|medium|high" in prompt
 
 
 def test_default_macro_view_is_generic() -> None:
@@ -137,14 +146,14 @@ def test_render_workflow_trace_markdown_contains_engine_and_events() -> None:
         "local",
         [event],
         [run],
-        planned_calls=1,
-        debate_rounds=0,
+        max_planned_calls=1,
+        max_debate_rounds=0,
     )
 
     assert "portfolio-workflow-trace" in markdown
     assert "engine: local" in markdown
     assert "Risk Manager" in markdown
-    assert "planned_llm_calls: 1" in markdown
+    assert "max_planned_llm_calls: 1" in markdown
     assert "actual_llm_calls: 1" in markdown
     assert "total_tokens_reported: 10" in markdown
 
@@ -301,7 +310,16 @@ def test_agent_workflow_runs_three_debate_rounds_by_default(monkeypatch) -> None
             self, system_prompt, user_prompt, model, operation, timeout, max_tokens=None
         ):
             del system_prompt, user_prompt, model, timeout, max_tokens
+            action = "Hold"
+            risk = "medium"
+            if "Bull" in operation:
+                action = "Increase"
+                risk = "low"
+            if "Bear" in operation or "Risk" in operation:
+                action = "Trim"
+                risk = "high"
             return (
+                f"action_label: {action}\nrisk_level: {risk}\n"
                 f"{operation}. This fake output is long enough to pass validation.",
                 {"total_tokens": 1},
             )
@@ -342,8 +360,64 @@ def test_agent_workflow_runs_three_debate_rounds_by_default(monkeypatch) -> None
     )
 
     assert len(result.agent_runs) == 17
-    assert "debate_rounds: 3" in result.trace_markdown
-    assert "planned_llm_calls: 17" in result.trace_markdown
+    assert "completed_debate_rounds: 3" in result.trace_markdown
+    assert "max_planned_llm_calls: 17" in result.trace_markdown
+
+
+def test_agent_workflow_skips_debate_when_agents_agree(monkeypatch) -> None:
+    class FakeAdvisor:
+        def __init__(self, settings, repo_root: Path) -> None:
+            self.settings = settings
+            self.repo_root = repo_root
+
+        def generate_markdown(
+            self, system_prompt, user_prompt, model, operation, timeout, max_tokens=None
+        ):
+            del system_prompt, user_prompt, model, timeout, max_tokens
+            return (
+                "action_label: Hold\nrisk_level: medium\n"
+                f"{operation}. This fake output is long enough to pass validation.",
+                {"total_tokens": 1},
+            )
+
+    monkeypatch.setattr("folio.agentic.OpenAICompatibleAdvisor", FakeAdvisor)
+    balance = mock_balance("main")
+    snapshot = Snapshot(
+        id=1,
+        account_id="main",
+        ts=balance.ts,
+        balance=balance,
+        metrics=calculate_metrics(balance),
+    )
+    settings = OpenRouterSettings(
+        api_key="key",
+        base_url="https://openrouter.ai/api/v1",
+        site_url="http://localhost",
+        app_name="folio",
+        advisor_model="advisor",
+        advisor_deep_model="deep",
+        fast_model="fast",
+        dev_model="dev",
+        test_model="test",
+        extract_model="extract",
+    )
+
+    result = run_llm_agent_workflow(
+        settings=settings,
+        repo_root=Path("."),
+        account_id="main",
+        snapshot=snapshot,
+        snapshot_markdown="SNAPSHOT",
+        deterministic_briefs_markdown="BRIEFS",
+        liquidity_need=LiquidityNeed(),
+        report_prompt="REPORT",
+        engine="local",
+        max_retries=0,
+    )
+
+    assert len(result.agent_runs) == 8
+    assert "completed_debate_rounds: 0" in result.trace_markdown
+    assert "reason=consensus or no material conflict" in result.trace_markdown
 
 
 def test_render_portfolio_svg_contains_svg() -> None:

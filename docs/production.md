@@ -93,8 +93,9 @@ LLM_MAX_AGENT_OUTPUT_CHARS=5000
 2. Debate/review: bull rebuttal, bear rebuttal, and final risk review for each debate round.
 3. Portfolio Manager synthesis: one final model call over all agent outputs.
 
-By default this is 7 analyst agents + 3 debate/review agents x 3 rounds + 1
-Portfolio Manager synthesis = 17 LLM calls. All agent outputs, including the
+By default this is 7 analyst agents + conditional debate/review with up to 3
+rounds + 1 Portfolio Manager synthesis. If analyst opinions already converge,
+the debate is skipped or stopped early. All agent outputs, including the
 Portfolio Manager synthesis, are rendered in `portfolio_multi_agent_runs.md`.
 
 The default engine is `langgraph`. The project targets Python 3.12 and includes
@@ -108,7 +109,7 @@ folio report --agentic --agent-engine langgraph
 
 Production controls:
 
-- `--debate-rounds N`: number of bull/bear/risk review rounds. Default: `3`.
+- `--debate-rounds N`: maximum bull/bear/risk review rounds. Default: `3`.
 - `--agent-retries N`: retry count per agent node after a failed LLM call. Default: `2`.
 - `--agent-workers N`: local executor parallelism when `--agent-engine local` is used. Default: `4`.
 - `--deep`: route all agents to the deep model.
