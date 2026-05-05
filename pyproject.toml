@@ -3,15 +3,23 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "folio"
+name = "kis-folio"
 version = "0.1.0"
-description = "Local KIS domestic-stock portfolio analysis advisor"
+description = "Unofficial local-first KIS OpenAPI portfolio analysis advisor"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [{name = "hjongc"}]
+keywords = ["kis", "portfolio", "langgraph", "openai-compatible", "investment-analysis"]
 dependencies = [
     "langgraph>=1.0",
     "textual>=0.89",
 ]
+
+[project.urls]
+Homepage = "https://github.com/hjongc/kis-folio"
+Repository = "https://github.com/hjongc/kis-folio"
+Issues = "https://github.com/hjongc/kis-folio/issues"
 
 [project.optional-dependencies]
 dev = [
