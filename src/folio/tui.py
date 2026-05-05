@@ -16,7 +16,6 @@ from .terminal import (
     render_decision_text,
     render_file_manifest_text,
     render_overview_text,
-    render_snapshot_flags_text,
     text_bar,
 )
 
@@ -162,8 +161,6 @@ def run_dashboard(
                             row.sector,
                         )
                     yield table
-                with TabPane("Flags", id="flags"):
-                    yield Static(render_snapshot_flags_text(dashboard), classes="card")
                 with TabPane("Agents", id="agents"):
                     with ScrollableContainer():
                         yield Static(

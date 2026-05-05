@@ -6,13 +6,15 @@ from folio.terminal import (
     ACTION_WATCH,
     build_terminal_dashboard,
     clip_text,
+    extract_decision_text,
     extract_position_action_table,
     read_latest_agent_runs_text,
     read_latest_report_text,
     read_latest_workflow_trace,
+    render_agent_runs_for_tui,
     render_decision_text,
     render_file_manifest_text,
-    render_snapshot_flags_text,
+    split_agent_sections,
     text_bar,
 )
 
@@ -62,16 +64,6 @@ def test_render_decision_text_without_report_prompts_agentic_run() -> None:
     assert "folio report --agentic" in text
 
 
-def test_render_snapshot_flags_text_contains_local_rule_hints() -> None:
-    balance = mock_balance("main")
-    dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
-    text = render_snapshot_flags_text(dashboard)
-
-    assert "Local Snapshot Flags" in text
-    assert "rule-based risk hints" in text
-    assert "sector" in text
-
-
 def test_render_file_manifest_text_lists_outputs() -> None:
     text = render_file_manifest_text("2026-05")
 
@@ -117,6 +109,29 @@ def test_extract_position_action_table_reads_latest_report_section() -> None:
     assert "Health Score" not in table
 
 
+def test_extract_decision_text_falls_back_to_action_items() -> None:
+    markdown = """
+## Executive Summary
+
+summary
+
+## Action Items
+
+| # | Trigger | Action | Size |
+|---|---|---|---|
+| A1 | now | trim | 1% |
+
+## Next Section
+"""
+
+    text = extract_decision_text(markdown)
+
+    assert "Action Items" in text
+    assert "Position Action Table was not found" in text
+    assert "A1" in text
+    assert "Next Section" not in text
+
+
 def test_clip_text_truncates_long_text() -> None:
     text = clip_text("x" * 20, max_chars=10)
 
@@ -128,3 +143,40 @@ def test_latest_report_readers_return_empty_state(tmp_path) -> None:
     assert "No report found" in read_latest_report_text(tmp_path)
     assert "No workflow trace found" in read_latest_workflow_trace(tmp_path)
     assert "No agent run output found" in read_latest_agent_runs_text(tmp_path)
+
+
+def test_render_agent_runs_for_tui_splits_agent_blocks() -> None:
+    markdown = """
+# Multi-Agent Runs
+
+## Allocation Analyst
+
+- model: `fast`
+- debate_round: `0`
+
+action_label: Hold
+risk_level: medium
+allocation output
+
+## Risk Manager
+
+- model: `advisor`
+- debate_round: `1`
+
+action_label: Trim
+risk_level: high
+risk output
+"""
+
+    text = render_agent_runs_for_tui(markdown)
+
+    assert "1. Allocation Analyst" in text
+    assert "2. Risk Manager" in text
+    assert "action_label: Trim" in text
+
+
+def test_split_agent_sections_returns_role_sections() -> None:
+    sections = split_agent_sections("# Title\n\n## A\nbody\n## B\nbody")
+
+    assert len(sections) == 2
+    assert sections[0][0] == "## A"

@@ -230,29 +230,6 @@ def render_decision_text(
     return "\n".join(lines)
 
 
-def render_snapshot_flags_text(dashboard: TerminalDashboard, limit: int = 8) -> str:
-    lines = [
-        "[b]Local Snapshot Flags[/b]",
-        "These are rule-based risk hints, not LLM recommendations.",
-        "",
-        "Flag      Code     Weight    PnL%       Eval KRW        Signal",
-        "-" * 78,
-    ]
-    for row in dashboard.positions[:limit]:
-        action = f"[{ACTION_TONE[row.action]}]{row.action:<9}[/]"
-        lines.append(
-            f"{action} {row.code:<8} {row.weight:>6.1%} "
-            f"{row.pnl_pct:>+8.2f}% {row.eval_amount:>14,.0f}  {row.reason}"
-        )
-    lines.extend(
-        [
-            "",
-            "For actual decision rationale, use the LLM Decision Board.",
-        ]
-    )
-    return "\n".join(lines)
-
-
 def render_overview_text(dashboard: TerminalDashboard) -> str:
     return "\n".join(
         [
@@ -311,14 +288,76 @@ def read_latest_agent_runs_text(reports_dir: Path = Path("reports")) -> str:
     candidates = sorted(reports_dir.glob("*/portfolio_multi_agent_runs.md"), reverse=True)
     if not candidates:
         return "No agent run output found. Generate one with `folio report --agentic`."
-    return clip_text(candidates[0].read_text(encoding="utf-8"), max_chars=20000)
+    return render_agent_runs_for_tui(candidates[0].read_text(encoding="utf-8"))
+
+
+def render_agent_runs_for_tui(markdown: str, max_chars_per_agent: int = 1800) -> str:
+    sections = split_agent_sections(markdown)
+    if not sections:
+        return clip_text(markdown, max_chars=20000)
+    lines = [
+        "[b]Agent Outputs[/b]",
+        "Each block is one agent run. Use the final Report tab for the PM synthesis.",
+        "",
+    ]
+    for index, section in enumerate(sections, start=1):
+        title = section[0].lstrip("# ").strip()
+        body = "\n".join(section[1:]).strip()
+        lines.extend(
+            [
+                f"[b]{index}. {title}[/b]",
+                "-" * 72,
+                clip_text(body, max_chars=max_chars_per_agent),
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
+
+
+def split_agent_sections(markdown: str) -> list[list[str]]:
+    sections: list[list[str]] = []
+    current: list[str] = []
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            if current:
+                sections.append(current)
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    if current:
+        sections.append(current)
+    return sections
 
 
 def read_latest_decision_table(reports_dir: Path = Path("reports")) -> str:
     candidates = sorted(reports_dir.glob("*/portfolio_analysis_report.md"), reverse=True)
     if not candidates:
         return ""
-    return extract_position_action_table(candidates[0].read_text(encoding="utf-8"))
+    return extract_decision_text(candidates[0].read_text(encoding="utf-8"))
+
+
+def extract_decision_text(markdown: str) -> str:
+    position_table = extract_position_action_table(markdown)
+    if position_table:
+        return "\n".join(["[b]Position Action Table[/b]", position_table])
+    action_items = extract_markdown_section(markdown, "## Action Items")
+    if action_items:
+        return "\n".join(
+            [
+                "[b]Action Items[/b]",
+                "Position Action Table was not found in the latest report; showing action items.",
+                "",
+                clip_text(action_items, max_chars=9000),
+            ]
+        )
+    decision_summary = extract_markdown_section(markdown, "## Decision Summary")
+    if decision_summary:
+        return "\n".join(["[b]Decision Summary[/b]", clip_text(decision_summary, max_chars=5000)])
+    return (
+        "Latest report found, but it has no Decision Summary, Position Action Table, "
+        "or Action Items section. Regenerate with `folio report --agentic`."
+    )
 
 
 def extract_position_action_table(markdown: str, max_rows: int = 8) -> str:
@@ -328,6 +367,24 @@ def extract_position_action_table(markdown: str, max_rows: int = 8) -> str:
             table = collect_markdown_table(lines[index + 1 :], max_rows=max_rows)
             return "\n".join(table)
     return ""
+
+
+def extract_markdown_section(markdown: str, heading: str) -> str:
+    lines = markdown.splitlines()
+    start_index: int | None = None
+    target = heading.strip().lower()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == target:
+            start_index = index
+            break
+    if start_index is None:
+        return ""
+    section: list[str] = []
+    for line in lines[start_index:]:
+        if section and line.startswith("## "):
+            break
+        section.append(line)
+    return "\n".join(section).strip()
 
 
 def collect_markdown_table(lines: list[str], max_rows: int) -> list[str]:
