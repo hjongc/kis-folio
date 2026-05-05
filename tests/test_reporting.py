@@ -10,6 +10,7 @@ from folio.agentic import (
     render_agent_briefs_markdown,
     render_agent_runs_markdown,
     render_workflow_trace_markdown,
+    report_has_end_marker,
     run_llm_agent_workflow,
 )
 from folio.analyzer import calculate_metrics
@@ -46,8 +47,28 @@ def test_render_report_prompt_includes_lenses_template_and_agents() -> None:
 
     assert "Risk Manager" in prompt
     assert "portfolio-analysis-report" in prompt
+    assert "Decision Summary" in prompt
+    assert "Position Action Table" in prompt
+    assert "Increase/Hold/Trim/Exit/Watch" in prompt
+    assert "## End of Report" in prompt
     assert "SNAPSHOT" in prompt
     assert "AGENT_BRIEFS" in prompt
+
+
+def test_default_macro_view_is_generic() -> None:
+    balance = mock_balance("main")
+    snapshot = Snapshot(
+        id=1,
+        account_id="main",
+        ts=balance.ts,
+        balance=balance,
+        metrics=calculate_metrics(balance),
+    )
+
+    markdown = render_snapshot_markdown(snapshot, "2026-05", date(2026, 5, 5))
+
+    assert "5월 중반" not in markdown
+    assert "전쟁 소강" not in markdown
 
 
 def test_render_agent_briefs_contains_portfolio_roles() -> None:
@@ -118,6 +139,11 @@ def test_render_workflow_trace_markdown_contains_engine_and_events() -> None:
     assert "engine: local" in markdown
     assert "Risk Manager" in markdown
     assert "total_tokens_reported: 15" in markdown
+
+
+def test_report_has_end_marker() -> None:
+    assert report_has_end_marker("body\n\n## End of Report\n")
+    assert not report_has_end_marker("body")
 
 
 def test_choose_agent_model_routes_fast_and_deep() -> None:

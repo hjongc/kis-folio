@@ -1,35 +1,42 @@
 from __future__ import annotations
 
 from .models import Balance, Metrics
+from .terminal import build_terminal_dashboard, text_bar
 
 
 def render_text_dashboard(balance: Balance, metrics: Metrics) -> None:
-    print("folio dashboard")
-    print(f"account={balance.account_id}")
+    dashboard = build_terminal_dashboard(balance, metrics)
+    print("kis-folio dashboard")
+    print(f"account={dashboard.account_id}")
     print(
-        f"eval_total={balance.eval_total:,.0f} "
-        f"cash={balance.cash:,.0f} pnl={balance.pnl_total:,.0f}"
+        f"assets={dashboard.asset_total:,.0f} "
+        f"invested={dashboard.eval_total:,.0f} cash={dashboard.cash:,.0f} "
+        f"pnl={dashboard.pnl_total:,.0f}"
     )
-    print(f"hhi={metrics.hhi:.3f} top3={metrics.top_n_pct:.1%}")
+    print(
+        f"stance={dashboard.overall_action} | {dashboard.overall_reason} | "
+        f"hhi={dashboard.hhi:.3f} top3={dashboard.top3:.1%} "
+        f"leverage={dashboard.leverage_weight:.1%}"
+    )
+    print("allocation:")
+    for label, ratio in dashboard.allocation_bars:
+        print(f"- {label:<8} [{text_bar(ratio)}] {ratio:>6.1%}")
     print("positions:")
-    for position in sorted(balance.positions, key=lambda item: item.eval_amount, reverse=True):
-        weight = metrics.position_weights.get(position.code, 0.0)
+    for row in dashboard.positions:
         print(
-            f"- {position.code} {position.name} "
-            f"weight={weight:.1%} eval={position.eval_amount:,.0f} "
-            f"pnl={position.pnl:,.0f} sector={position.sector}"
+            f"- {row.code:<6} {row.name[:18]:<18} {row.action:<8} "
+            f"w={row.weight:>5.1%} pnl={row.pnl_pct:>+7.2f}% "
+            f"eval={row.eval_amount:>12,.0f} | {row.reason}"
         )
-    print(
-        "[A] analyze: run `folio analyze --mock`  "
-        "[R] refresh: run `folio status --mock`  [Q] quit"
-    )
+    print("[R] refresh  [A] agentic report  [V] view latest report  [Q] quit")
 
 
 def run_dashboard(balance: Balance, metrics: Metrics) -> None:
+    dashboard = build_terminal_dashboard(balance, metrics)
     try:
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical
-        from textual.widgets import DataTable, Footer, Header, Static
+        from textual.widgets import DataTable, Footer, Header, Label, Static, TabbedContent, TabPane
     except ImportError:
         render_text_dashboard(balance, metrics)
         return
@@ -39,66 +46,133 @@ def run_dashboard(balance: Balance, metrics: Metrics) -> None:
         Screen {
             layout: vertical;
         }
-        #metrics {
-            height: 3;
-            padding: 0 1;
-            background: $surface;
+        .card {
+            height: auto;
+            padding: 1 2;
+            border: round $primary;
+            margin: 0 1 1 1;
         }
-        #body {
-            height: 1fr;
-        }
-        #sectors {
-            width: 34;
-            padding: 1;
-            background: $panel;
+        .muted {
+            color: $text-muted;
         }
         DataTable {
             height: 1fr;
+        }
+        #overview-grid {
+            height: auto;
+        }
+        #left {
+            width: 1fr;
+        }
+        #right {
+            width: 1fr;
         }
         """
         BINDINGS = [
             ("q", "quit", "Quit"),
             ("r", "refresh", "Refresh"),
-            ("a", "analyze", "Analyze"),
+            ("a", "agentic", "Agent Report"),
+            ("v", "view_report", "View Report"),
         ]
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
-            yield Static(
-                (
-                    f"평가금액 {balance.eval_total:,.0f}원 | "
-                    f"평가손익 {balance.pnl_total:,.0f}원 | "
-                    f"현금 {balance.cash:,.0f}원 | HHI {metrics.hhi:.3f}"
-                ),
-                id="metrics",
-            )
-            with Horizontal(id="body"):
-                table = DataTable()
-                table.add_columns("코드", "이름", "비중", "평가금액", "손익", "섹터")
-                positions = sorted(
-                    balance.positions, key=lambda item: item.eval_amount, reverse=True
-                )
-                for position in positions:
-                    table.add_row(
-                        position.code,
-                        position.name,
-                        f"{metrics.position_weights.get(position.code, 0.0):.1%}",
-                        f"{position.eval_amount:,.0f}",
-                        f"{position.pnl:,.0f}",
-                        position.sector,
+            with TabbedContent():
+                with TabPane("Overview", id="overview"):
+                    with Horizontal(id="overview-grid"):
+                        with Vertical(id="left"):
+                            yield Static(
+                                (
+                                    f"[b]Total[/b] {dashboard.asset_total:,.0f} KRW\n"
+                                    f"[b]Invested[/b] {dashboard.eval_total:,.0f} KRW\n"
+                                    f"[b]Cash[/b] {dashboard.cash:,.0f} KRW\n"
+                                    f"[b]PnL[/b] {dashboard.pnl_total:,.0f} KRW"
+                                ),
+                                classes="card",
+                            )
+                            yield Static(
+                                (
+                                    f"[b]Overall[/b] {dashboard.overall_action}\n"
+                                    f"{dashboard.overall_reason}\n\n"
+                                    f"HHI {dashboard.hhi:.3f} | Top3 {dashboard.top3:.1%} | "
+                                    f"Leverage {dashboard.leverage_weight:.1%}"
+                                ),
+                                classes="card",
+                            )
+                        with Vertical(id="right"):
+                            allocation_lines = ["[b]Allocation[/b]"]
+                            for label, ratio in dashboard.allocation_bars:
+                                allocation_lines.append(
+                                    f"{label:<8} {text_bar(ratio, width=18)} {ratio:>6.1%}"
+                                )
+                            yield Static("\n".join(allocation_lines), classes="card")
+                            yield Static(
+                                (
+                                    "[b]Workflow[/b]\n"
+                                    "r refresh account\n"
+                                    "a run agentic report\n"
+                                    "v open latest report tab\n"
+                                    "q quit"
+                                ),
+                                classes="card",
+                            )
+                with TabPane("Holdings", id="holdings"):
+                    table = DataTable(zebra_stripes=True)
+                    table.add_columns(
+                        "Code", "Name", "Action", "Weight", "PnL%", "Eval", "Reason"
                     )
-                yield table
-                sector_lines = ["섹터 분포"]
-                for sector, weight in metrics.sector_dist.items():
-                    sector_lines.append(f"{sector}: {weight:.1%}")
-                with Vertical(id="sectors"):
-                    yield Static("\n".join(sector_lines))
+                    for row in dashboard.positions:
+                        table.add_row(
+                            row.code,
+                            row.name,
+                            row.action,
+                            f"{row.weight:.1%}",
+                            f"{row.pnl_pct:+.2f}%",
+                            f"{row.eval_amount:,.0f}",
+                            row.reason,
+                        )
+                    yield table
+                with TabPane("Agents", id="agents"):
+                    yield Static(
+                        (
+                            "[b]Agent Workflow[/b]\n"
+                            "7 analyst fan-out -> bull/bear/risk debate -> PM synthesis\n\n"
+                            "Use CLI for now:\n"
+                            "folio report --agentic --llm-max-calls 12 --llm-max-cost-usd 1.00"
+                        ),
+                        classes="card",
+                    )
+                with TabPane("Report", id="report"):
+                    yield Static(
+                        (
+                            "[b]Latest Report[/b]\n"
+                            "reports/<YYYY-MM>/portfolio_analysis_report.md\n\n"
+                            "Generated reports stay local and are ignored by Git."
+                        ),
+                        classes="card",
+                    )
+                with TabPane("Files", id="files"):
+                    yield Label("Generated outputs")
+                    yield Static(
+                        (
+                            "portfolio_snapshot.md\n"
+                            "portfolio_agent_briefs.md\n"
+                            "portfolio_multi_agent_runs.md\n"
+                            "portfolio_workflow_trace.md\n"
+                            "portfolio_visual.svg\n"
+                            "portfolio_analysis_report.md"
+                        ),
+                        classes="card",
+                    )
             yield Footer()
 
         def action_refresh(self) -> None:
-            self.notify("CLI에서 `folio status`로 최신 스냅샷을 조회하세요.")
+            self.notify("Run `folio status` to refresh account data.")
 
-        def action_analyze(self) -> None:
-            self.notify("CLI에서 `folio analyze`로 Advisor 분석을 실행하세요.")
+        def action_agentic(self) -> None:
+            self.notify("Run `folio report --agentic` to generate a LangGraph report.")
+
+        def action_view_report(self) -> None:
+            self.notify("Open reports/<YYYY-MM>/portfolio_analysis_report.md.")
 
     FolioDashboard().run()

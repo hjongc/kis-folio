@@ -212,12 +212,16 @@ def run_llm_agent_workflow(
         budget=budget,
     )
     budget.record_usage(usage)
+    marker_ok = report_has_end_marker(report_markdown)
     events.append(
         WorkflowEvent(
             ts=datetime.now(tz=UTC),
             node="Portfolio Manager Synthesis",
-            status="ok",
-            detail=f"final report generated with {usage.get('total_tokens', 'unknown')} tokens",
+            status="ok" if marker_ok else "warning",
+            detail=(
+                f"final report generated with {usage.get('total_tokens', 'unknown')} tokens; "
+                f"end_marker={str(marker_ok).lower()}"
+            ),
         )
     )
     return AgentWorkflowResult(
@@ -733,6 +737,7 @@ def render_workflow_trace_markdown(
         "",
         f"- engine: `{engine}`",
         f"- agent_runs: {len(runs)}",
+        f"- actual_llm_calls: {len(runs) + 1}",
         f"- total_tokens_reported: {total_tokens}",
         f"- total_cost_reported: {total_cost:.6f}",
         "",
@@ -748,6 +753,10 @@ def render_workflow_trace_markdown(
             f"{event.attempt} | {event.duration_sec:.2f} | {detail} |"
         )
     return "\n".join(lines) + "\n"
+
+
+def report_has_end_marker(markdown: str) -> bool:
+    return markdown.rstrip().endswith("## End of Report")
 
 
 def liquidity_need_to_json(need: LiquidityNeed) -> dict[str, Any]:

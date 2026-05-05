@@ -25,15 +25,13 @@ known_biases:
 
 
 DEFAULT_MACRO_VIEW = """macro_view:
-  - "작성자 가설: 전쟁 소강상태 가능성"
-  - "작성자 가설: 미국 통화량 증대 가능성"
-  - "작성자 가설: 국내 증시는 5월 중반까지 상승 가능성"
+  - "사용자가 별도 가설을 입력하지 않음"
 emerging_concerns:
   - "레버리지 ETF 비중 확대에 따른 변동성 증가"
-  - "국내 시장 및 반도체/테마 ETF 집중"
+  - "국내 시장 및 특정 테마 집중"
 opportunities_watching:
-  - "유동성 확대 시 위험자산 랠리 지속 여부"
-  - "상승 후 레버리지 비중 관리 기회"
+  - "현금 비중과 투자자산 비중의 재조정 여지"
+  - "보유 종목별 가설 검증과 리밸런싱 기회"
 """
 
 
@@ -53,7 +51,21 @@ schema_version: 1.0
 
 - **현재 상태**:
 - **핵심 관찰**:
-- **권고 우선순위**:
+- **Top Action**:
+
+## Decision Summary
+
+| 항목 | 판단 |
+|---|---|
+| Overall Stance | [Increase / Hold / Trim / Exit / Watch] |
+| Primary Reason | |
+| Biggest Risk | |
+| Next Trigger | |
+
+## Position Action Table
+
+| 티커 | 종목명 | Action | Size | Trigger | Rationale | Confidence |
+|---|---|---|---|---|---|---|
 
 ## Health Score
 
@@ -78,7 +90,7 @@ schema_version: 1.0
 
 ## Action Items
 
-모든 액션은 trigger + action + size를 포함해야 한다.
+모든 액션은 trigger + action_label + size + time_horizon + confidence를 포함해야 한다.
 
 ### 즉시 (이번 주)
 | # | Trigger (조건) | Action (실행) | Size (규모) | Lens |
@@ -107,6 +119,8 @@ schema_version: 1.0
 ## Disclaimer
 
 이 리포트는 LLM 기반 자동 분석이며 투자 권유나 자문이 아니다.
+
+## End of Report
 """
 
 
@@ -121,7 +135,10 @@ SYSTEM_PROMPT = """당신은 한국 개인투자자의 포트폴리오를 분석
 6. 확증편향 검증 — 좋은 결과가 운인지 실력인지 늘 의심하라.
 7. 모든 권고는 구체적이고 실행가능해야 한다.
 8. 모든 권고는 trigger(언제) + action(무엇을) + size(얼마나)을 포함하라.
-9. 신규 종목 매수 권유는 하지 말고, 보유 포지션 관리·리밸런싱·검증 규칙 위주로 작성하라.
+9. 제공 데이터 밖 신규 티커를 단정 추천하지 말라.
+10. 보유 종목과 현금에 대해서는 Increase/Hold/Trim/Exit/Watch 중 하나의 action_label을 제시하라.
+11. action_label은 투자 자문이 아니라 의사결정 보조 라벨로 표현하라.
+12. 모든 최종 리포트 마지막 줄은 반드시 "## End of Report"로 끝내라.
 """
 
 
@@ -361,6 +378,10 @@ def render_report_prompt(
 6. 마지막에 "다음 달 점검 시 확인할 가설/지표 리스트"를 첨부한다.
 7. portfolio_agent_briefs.md가 제공되면, 이를 TradingAgents식 분석가/토론 브리프로 간주하고
    Lens-by-Lens Findings와 Action Items에 반영한다.
+8. 최종 리포트 앞부분에 Decision Summary와 Position Action Table을 반드시 작성한다.
+9. 각 보유 종목과 현금은 Increase/Hold/Trim/Exit/Watch 중 하나의 action_label을 가진다.
+10. 신규 티커 단정 추천은 금지한다. 보유 종목, 현금, 비중 조정 중심으로 작성한다.
+11. 리포트 마지막 줄은 반드시 "## End of Report"로 끝낸다.
 
 analysis_lens_library.md:
 
