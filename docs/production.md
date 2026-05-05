@@ -15,6 +15,7 @@ cp .env.example .env
 Fill `.env`, then run:
 
 ```bash
+folio setup
 folio doctor
 folio init-db
 folio account add --id main --label Main --cano <CANO> --product-code <ACNT_PRDT_CD>
