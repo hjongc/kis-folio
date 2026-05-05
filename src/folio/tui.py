@@ -191,7 +191,16 @@ def run_dashboard(
             yield Footer()
 
         def action_refresh(self) -> None:
-            self.notify("Run `folio status` to refresh account data.")
+            self.query_one("#decision-board", Static).update(
+                render_decision_text(
+                    dashboard,
+                    llm_decision_text=read_latest_decision_table(),
+                )
+            )
+            self.query_one("#agent-trace", Static).update(read_latest_workflow_trace())
+            self.query_one("#agent-runs", Static).update(read_latest_agent_runs_text())
+            self.query_one("#report-body", Static).update(read_latest_report_text())
+            self.notify("Reloaded latest local report files.")
 
         def action_agentic(self) -> None:
             if settings is None or repo_root is None or snapshot is None:
