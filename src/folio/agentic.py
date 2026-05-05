@@ -4,7 +4,7 @@ import operator
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -129,47 +129,27 @@ def run_llm_agent_workflow(
     liquidity_need: LiquidityNeed,
     report_prompt: str,
     deep: bool = False,
-    engine: str = "auto",
+    engine: str = "langgraph",
     debate_rounds: int = 1,
     max_retries: int = 2,
     max_workers: int = 4,
 ) -> AgentWorkflowResult:
-    if engine not in {"auto", "langgraph", "local"}:
-        raise ValueError("engine must be one of: auto, langgraph, local")
+    if engine not in {"langgraph", "local"}:
+        raise ValueError("engine must be one of: langgraph, local")
     selected_engine = engine
-    if selected_engine == "auto":
-        selected_engine = "langgraph" if langgraph_available() else "local"
     if selected_engine == "langgraph":
-        try:
-            runs, events = _run_langgraph_agent_workflow(
-                settings=settings,
-                repo_root=repo_root,
-                account_id=account_id,
-                snapshot=snapshot,
-                snapshot_markdown=snapshot_markdown,
-                deterministic_briefs_markdown=deterministic_briefs_markdown,
-                liquidity_need=liquidity_need,
-                deep=deep,
-                debate_rounds=debate_rounds,
-                max_retries=max_retries,
-            )
-        except ImportError:
-            if engine == "langgraph":
-                raise
-            selected_engine = "local"
-            runs, events = _run_local_agent_workflow(
-                settings=settings,
-                repo_root=repo_root,
-                account_id=account_id,
-                snapshot=snapshot,
-                snapshot_markdown=snapshot_markdown,
-                deterministic_briefs_markdown=deterministic_briefs_markdown,
-                liquidity_need=liquidity_need,
-                deep=deep,
-                debate_rounds=debate_rounds,
-                max_retries=max_retries,
-                max_workers=max_workers,
-            )
+        runs, events = _run_langgraph_agent_workflow(
+            settings=settings,
+            repo_root=repo_root,
+            account_id=account_id,
+            snapshot=snapshot,
+            snapshot_markdown=snapshot_markdown,
+            deterministic_briefs_markdown=deterministic_briefs_markdown,
+            liquidity_need=liquidity_need,
+            deep=deep,
+            debate_rounds=debate_rounds,
+            max_retries=max_retries,
+        )
     else:
         runs, events = _run_local_agent_workflow(
             settings=settings,
@@ -196,7 +176,7 @@ def run_llm_agent_workflow(
     )
     events.append(
         WorkflowEvent(
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             node="Portfolio Manager Synthesis",
             status="ok",
             detail=f"final report generated with {usage.get('total_tokens', 'unknown')} tokens",
@@ -261,7 +241,7 @@ def run_llm_agent_team(
             id=None,
             account_id=account_id,
             snapshot_id=snapshot.id,
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             role=spec.role,
             model=model,
             input_json={
@@ -302,7 +282,7 @@ def _run_local_agent_workflow(
     advisor = OpenRouterAdvisor(settings, repo_root)
     events: list[WorkflowEvent] = [
         WorkflowEvent(
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             node="workflow",
             status="start",
             detail=f"engine=local, analyst_workers={max_workers}, debate_rounds={debate_rounds}",
@@ -374,8 +354,8 @@ def _run_langgraph_agent_workflow(
         from langgraph.graph import END, START, StateGraph
     except ImportError as exc:
         raise ImportError(
-            "LangGraph is not installed. Install with `python -m pip install -e '.[agent]'` "
-            "on Python 3.10+."
+            "LangGraph is not installed. Create a Python 3.12 environment and run "
+            "`python -m pip install -e '.[dev]'`."
         ) from exc
 
     advisor = OpenRouterAdvisor(settings, repo_root)
@@ -412,7 +392,7 @@ def _run_langgraph_agent_workflow(
     def debate_node(state: AgentWorkflowState) -> AgentWorkflowState:
         if debate_rounds <= 0:
             return {"runs": [], "events": []}
-        runs = list(state.get("runs", []))
+        runs = order_agent_runs(list(state.get("runs", [])))
         debate_runs: list[AgentRun] = []
         events: list[WorkflowEvent] = []
         prior_outputs = [f"## {run.role}\n\n{run.output_markdown}" for run in runs]
@@ -446,7 +426,7 @@ def _run_langgraph_agent_workflow(
             "runs": [],
             "events": [
                 WorkflowEvent(
-                    ts=datetime.now(tz=timezone.utc),
+                    ts=datetime.now(tz=UTC),
                     node="workflow",
                     status="start",
                     detail=f"engine=langgraph, analyst_nodes={len(agent_node_names)}",
@@ -454,7 +434,7 @@ def _run_langgraph_agent_workflow(
             ],
         }
     )
-    return list(result.get("runs", [])), list(result.get("events", []))
+    return order_agent_runs(list(result.get("runs", []))), list(result.get("events", []))
 
 
 def _run_single_agent_with_retry(
@@ -495,7 +475,7 @@ def _run_single_agent_with_retry(
             duration = time.monotonic() - started
             events.append(
                 WorkflowEvent(
-                    ts=datetime.now(tz=timezone.utc),
+                    ts=datetime.now(tz=UTC),
                     node=spec.role,
                     status="ok",
                     detail=f"model={model}, debate_round={debate_round}",
@@ -508,7 +488,7 @@ def _run_single_agent_with_retry(
                     id=None,
                     account_id=account_id,
                     snapshot_id=snapshot.id,
-                    ts=datetime.now(tz=timezone.utc),
+                    ts=datetime.now(tz=UTC),
                     role=spec.role,
                     model=model,
                     input_json={
@@ -528,7 +508,7 @@ def _run_single_agent_with_retry(
             duration = time.monotonic() - started
             events.append(
                 WorkflowEvent(
-                    ts=datetime.now(tz=timezone.utc),
+                    ts=datetime.now(tz=UTC),
                     node=spec.role,
                     status="retry" if attempt < attempts else "error",
                     detail=str(exc),
@@ -549,6 +529,11 @@ def validate_agent_output(spec: AgentSpec, output: str) -> None:
 
 def node_name_for_role(role: str) -> str:
     return role.lower().replace("/", "_").replace(" ", "_")
+
+
+def order_agent_runs(runs: list[AgentRun]) -> list[AgentRun]:
+    role_order = {spec.role: index for index, spec in enumerate([*AGENT_SPECS, *DEBATE_SPECS])}
+    return sorted(runs, key=lambda run: role_order.get(run.role, len(role_order)))
 
 
 def synthesize_llm_agent_report(

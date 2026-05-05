@@ -13,7 +13,7 @@ Textual dashboard with a plain terminal fallback.
 
 ```bash
 cp .env.example .env
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
@@ -55,17 +55,9 @@ Generate a true multi-agent LLM report:
 folio report --agentic
 ```
 
-`--agentic` runs a production-style workflow: analyst fan-out, optional
-bull/bear/risk debate review, and final Portfolio Manager synthesis. On Python
-3.10+ you can install LangGraph orchestration with:
-
-```bash
-python -m pip install -e ".[agent,dev]"
-folio report --agentic --agent-engine langgraph
-```
-
-On Python 3.9 the CLI uses the built-in local DAG executor with the same node
-order and trace output.
+`--agentic` runs a LangGraph workflow: analyst fan-out, optional bull/bear/risk
+debate review, and final Portfolio Manager synthesis. The project targets
+Python 3.12.
 
 Outputs are written under `reports/<YYYY-MM>/`:
 
@@ -85,5 +77,8 @@ folio report --cash-need 50000000 --needed-by 2026-05-28 --withdraw-by 2026-05-2
 Useful production controls:
 
 ```bash
-folio report --agentic --agent-engine auto --debate-rounds 1 --agent-retries 2 --agent-workers 4
+folio report --agentic --agent-engine langgraph --debate-rounds 1 --agent-retries 2
 ```
+
+Git commits use Conventional Commits: `type(scope): subject`, for example
+`feat(agent): add langgraph workflow`.

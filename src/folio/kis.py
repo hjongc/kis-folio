@@ -6,7 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +33,7 @@ class Token:
     @property
     def is_valid(self) -> bool:
         return self.access_token != "" and self.expires_at > datetime.now(
-            tz=timezone.utc
+            tz=UTC
         ) + timedelta(minutes=5)
 
 
@@ -165,7 +165,7 @@ class KISClient:
         expires_in = int(raw.get("expires_in", 0) or 0)
         token = Token(
             access_token=access_token,
-            expires_at=datetime.now(tz=timezone.utc) + timedelta(seconds=expires_in),
+            expires_at=datetime.now(tz=UTC) + timedelta(seconds=expires_in),
         )
         self._write_cached_token(self.settings.token_cache_path, token)
         return token
@@ -249,7 +249,7 @@ def parse_balance(account_id: str, payload: dict[str, Any]) -> Balance:
     )
     return Balance(
         account_id=account_id,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         cash=cash,
         eval_total=eval_total,
         pnl_total=pnl_total,

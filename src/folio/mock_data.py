@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .models import Balance, Position
 
@@ -13,7 +13,7 @@ def mock_balance(account_id: str = "main") -> Balance:
     ]
     return Balance(
         account_id=account_id,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         cash=250000,
         eval_total=sum(position.eval_amount for position in positions),
         pnl_total=sum(position.pnl for position in positions),

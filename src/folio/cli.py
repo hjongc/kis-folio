@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .advisor import AdvisorError, OpenRouterAdvisor, local_advisor_output
@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--mock", action="store_true")
     report.add_argument("--deep", action="store_true")
     report.add_argument("--agentic", action="store_true")
-    report.add_argument("--agent-engine", choices=["auto", "langgraph", "local"], default="auto")
+    report.add_argument("--agent-engine", choices=["langgraph", "local"], default="langgraph")
     report.add_argument("--debate-rounds", type=int, default=1)
     report.add_argument("--agent-retries", type=int, default=2)
     report.add_argument("--agent-workers", type=int, default=4)
@@ -371,7 +371,7 @@ def build_snapshot(balance: Balance) -> Snapshot:
     return Snapshot(
         id=None,
         account_id=balance.account_id,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         balance=balance,
         metrics=metrics,
     )

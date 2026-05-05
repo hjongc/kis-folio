@@ -194,6 +194,62 @@ def test_run_local_agent_workflow_with_fake_advisor(monkeypatch) -> None:
     assert result.final_report.startswith("agent:Portfolio Manager Synthesis")
 
 
+def test_run_langgraph_agent_workflow_with_fake_advisor(monkeypatch) -> None:
+    class FakeAdvisor:
+        def __init__(self, settings, repo_root: Path) -> None:
+            self.settings = settings
+            self.repo_root = repo_root
+
+        def generate_markdown(self, system_prompt, user_prompt, model, operation, timeout):
+            del system_prompt, user_prompt, timeout
+            return (
+                f"{operation} using {model}. "
+                "This fake output is long enough to pass validation.",
+                {"total_tokens": 2},
+            )
+
+    monkeypatch.setattr("folio.agentic.OpenRouterAdvisor", FakeAdvisor)
+    balance = mock_balance("main")
+    snapshot = Snapshot(
+        id=1,
+        account_id="main",
+        ts=balance.ts,
+        balance=balance,
+        metrics=calculate_metrics(balance),
+    )
+    settings = OpenRouterSettings(
+        api_key="key",
+        base_url="https://openrouter.ai/api/v1",
+        site_url="http://localhost",
+        app_name="folio",
+        advisor_model="advisor",
+        advisor_deep_model="deep",
+        fast_model="fast",
+        dev_model="dev",
+        test_model="test",
+        extract_model="extract",
+    )
+
+    result = run_llm_agent_workflow(
+        settings=settings,
+        repo_root=Path("."),
+        account_id="main",
+        snapshot=snapshot,
+        snapshot_markdown="SNAPSHOT",
+        deterministic_briefs_markdown="BRIEFS",
+        liquidity_need=LiquidityNeed(),
+        report_prompt="REPORT",
+        engine="langgraph",
+        debate_rounds=1,
+        max_retries=0,
+    )
+
+    assert result.engine == "langgraph"
+    assert len(result.agent_runs) == 10
+    assert result.agent_runs[0].role == "Allocation Analyst"
+    assert "engine: langgraph" in result.trace_markdown
+
+
 def test_render_portfolio_svg_contains_svg() -> None:
     balance = mock_balance("main")
     snapshot = Snapshot(

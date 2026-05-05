@@ -6,9 +6,9 @@ and OpenRouter credentials.
 ## Install
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -e .
+python -m pip install -e .
 cp .env.example .env
 ```
 
@@ -71,12 +71,12 @@ Use `--agentic` to run role-by-role LLM agents before final synthesis.
 2. Debate/review: bull rebuttal, bear rebuttal, and final risk review for each debate round.
 3. Portfolio Manager synthesis: one final model call over all agent outputs.
 
-The default engine is `auto`. It uses LangGraph when installed, otherwise the
-local DAG executor. Latest LangGraph releases require Python 3.10+, while the
-current local runtime is Python 3.9-compatible.
+The default engine is `langgraph`. The project targets Python 3.12 and includes
+LangGraph as a required dependency. The local DAG executor remains available for
+offline diagnostics only.
 
 ```bash
-python3 -m pip install -e ".[agent,dev]"
+python3.12 -m pip install -e ".[dev]"
 folio report --agentic --agent-engine langgraph
 ```
 
@@ -84,12 +84,26 @@ Production controls:
 
 - `--debate-rounds N`: number of bull/bear/risk review rounds. Default: `1`.
 - `--agent-retries N`: retry count per agent node after a failed LLM call. Default: `2`.
-- `--agent-workers N`: local executor parallelism for the initial analyst fan-out. Default: `4`.
+- `--agent-workers N`: local executor parallelism when `--agent-engine local` is used. Default: `4`.
 - `--deep`: route all agents to the deep model.
 
 The workflow trace records engine selection, node attempts, duration, and
 reported token/cost totals. Agent outputs are stored in SQLite `agent_runs` and
 also rendered to `portfolio_multi_agent_runs.md`.
+
+## Git Convention
+
+Commits use Conventional Commits:
+
+```text
+type(scope): subject
+```
+
+Examples:
+
+- `feat(agent): add langgraph workflow`
+- `chore(runtime): require python 3.12`
+- `test(report): cover workflow trace rendering`
 
 To reflect cash needs:
 

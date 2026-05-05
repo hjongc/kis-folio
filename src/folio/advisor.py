@@ -5,7 +5,7 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -76,7 +76,7 @@ class OpenRouterAdvisor:
             id=None,
             account_id=account_id,
             snapshot_id=snapshot_id,
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             model=model,
             prompt_git_ref=prompt_git_ref(self.repo_root),
             tool_calls=[{"name": "get_portfolio_summary", "result": summary}],
@@ -232,7 +232,7 @@ def local_advisor_output(
         id=None,
         account_id=account_id,
         snapshot_id=snapshot_id,
-        ts=datetime.now(tz=timezone.utc),
+        ts=datetime.now(tz=UTC),
         model=model,
         prompt_git_ref="local",
         tool_calls=[{"name": "get_portfolio_summary", "result": summary}],
