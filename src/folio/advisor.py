@@ -118,7 +118,7 @@ class OpenAICompatibleAdvisor:
                 raise AdvisorError(f"{self.settings.provider} HTTP {exc.code}: {detail}") from exc
             except urllib.error.URLError as exc:
                 raise AdvisorError(f"{self.settings.provider} network error: {exc.reason}") from exc
-        content = raw["choices"][0]["message"]["content"]
+        content = extract_chat_content(raw, self.settings.provider)
         return {"content": content, "usage": raw.get("usage", {})}
 
     def generate_markdown_report(
@@ -172,7 +172,7 @@ class OpenAICompatibleAdvisor:
                 raise AdvisorError(f"{self.settings.provider} HTTP {exc.code}: {detail}") from exc
             except urllib.error.URLError as exc:
                 raise AdvisorError(f"{self.settings.provider} network error: {exc.reason}") from exc
-        return raw["choices"][0]["message"]["content"], raw.get("usage", {})
+        return extract_chat_content(raw, self.settings.provider), raw.get("usage", {})
 
     def headers(self) -> dict[str, str]:
         headers = {
@@ -186,6 +186,19 @@ class OpenAICompatibleAdvisor:
 
 
 OpenRouterAdvisor = OpenAICompatibleAdvisor
+
+
+def extract_chat_content(raw: dict[str, Any], provider: str = "LLM") -> str:
+    try:
+        choices = raw["choices"]
+        first_choice = choices[0]
+        message = first_choice["message"]
+        content = message["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise AdvisorError(f"{provider} response omitted chat content") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise AdvisorError(f"{provider} response content was empty")
+    return content
 
 
 def parse_cards(content: str) -> AdvisorCards:

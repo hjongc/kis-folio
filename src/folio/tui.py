@@ -193,31 +193,48 @@ def run_dashboard(
             self.notify("Open reports/<YYYY-MM>/portfolio_analysis_report.md.")
 
         def generate_agentic_report(self) -> None:
-            assert settings is not None
-            assert repo_root is not None
-            assert snapshot is not None
-            period = snapshot.ts.strftime("%Y-%m")
-            result = generate_report(
-                settings=settings,
-                repo_root=repo_root,
-                request=ReportRequest(
-                    account_id=snapshot.account_id,
-                    snapshot=snapshot,
-                    period=period,
-                    report_date=snapshot.ts.date(),
-                    investor_id="local",
-                    output_dir=Path("reports"),
-                    liquidity_need=LiquidityNeed(),
-                    agentic=True,
-                    agent_engine="langgraph",
-                    llm_max_calls=settings.llm.max_llm_calls,
-                    llm_max_cost_usd=settings.llm.max_cost_usd,
-                ),
-            )
+            if settings is None or repo_root is None or snapshot is None:
+                self.call_from_thread(
+                    self.on_report_failed,
+                    "Missing runtime context. Run `folio report --agentic` from the CLI.",
+                )
+                return
+            try:
+                period = snapshot.ts.strftime("%Y-%m")
+                result = generate_report(
+                    settings=settings,
+                    repo_root=repo_root,
+                    request=ReportRequest(
+                        account_id=snapshot.account_id,
+                        snapshot=snapshot,
+                        period=period,
+                        report_date=snapshot.ts.date(),
+                        investor_id="local",
+                        output_dir=Path("reports"),
+                        liquidity_need=LiquidityNeed(),
+                        agentic=True,
+                        agent_engine="langgraph",
+                        llm_max_calls=settings.llm.max_llm_calls,
+                        llm_max_cost_usd=settings.llm.max_cost_usd,
+                    ),
+                )
+            except Exception as exc:
+                self.call_from_thread(self.on_report_failed, str(exc))
+                return
             self.call_from_thread(
                 self.on_report_generated,
                 str(result.paths.report_path),
             )
+
+        def on_report_failed(self, message: str) -> None:
+            self.query_one("#agent-trace", Static).update(
+                (
+                    "[b]Agent Workflow[/b]\n"
+                    "Report generation failed.\n\n"
+                    f"{message}"
+                ),
+            )
+            self.notify(f"Report generation failed: {message}", severity="error", timeout=8)
 
         def on_report_generated(self, report_path: str) -> None:
             self.query_one("#agent-trace", Static).update(read_latest_workflow_trace())
