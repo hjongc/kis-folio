@@ -43,8 +43,8 @@
 
   <g transform="translate(96 196)">
     <rect width="988" height="34" rx="8" fill="#203631"/>
-    <text x="18" y="23" class="small green">Overview</text>
-    <text x="118" y="23" class="small text">Decision</text>
+    <text x="18" y="23" class="small text">Overview</text>
+    <text x="118" y="23" class="small green">Decision</text>
     <text x="222" y="23" class="small text">Holdings</text>
     <text x="332" y="23" class="small text">Agents</text>
     <text x="426" y="23" class="small text">Report</text>
@@ -53,54 +53,36 @@
   </g>
 
   <g transform="translate(96 254)">
-    <rect width="470" height="162" rx="10" fill="#121C1B" stroke="#365B55"/>
-    <text x="22" y="34" class="mono green">Overall  Trim</text>
-    <text x="22" y="66" class="small text">concentration or leverage exposure is elevated</text>
-    <text x="22" y="102" class="small muted">HHI</text>
-    <text x="92" y="102" class="small text">0.234</text>
-    <text x="180" y="102" class="small muted">Top3</text>
-    <text x="260" y="102" class="small yellow">54.1%</text>
-    <text x="350" y="102" class="small muted">Cash</text>
-    <text x="412" y="102" class="small text">9.2%</text>
-    <rect x="22" y="126" width="426" height="10" rx="5" fill="#243432"/>
-    <rect x="22" y="126" width="230" height="10" rx="5" fill="#FCD34D"/>
-  </g>
-
-  <g transform="translate(612 254)">
-    <rect width="472" height="162" rx="10" fill="#121C1B" stroke="#365B55"/>
-    <text x="22" y="34" class="mono cyan">Allocation</text>
-    <text x="22" y="68" class="small muted">ETF</text>
-    <rect x="104" y="56" width="220" height="12" rx="6" fill="#253936"/>
-    <rect x="104" y="56" width="150" height="12" rx="6" fill="#67E8F9"/>
-    <text x="350" y="68" class="small text">68.4%</text>
-    <text x="22" y="100" class="small muted">Stock</text>
-    <rect x="104" y="88" width="220" height="12" rx="6" fill="#253936"/>
-    <rect x="104" y="88" width="56" height="12" rx="6" fill="#6EE7B7"/>
-    <text x="350" y="100" class="small text">25.6%</text>
-    <text x="22" y="132" class="small muted">Cash</text>
-    <rect x="104" y="120" width="220" height="12" rx="6" fill="#253936"/>
-    <rect x="104" y="120" width="20" height="12" rx="6" fill="#FCD34D"/>
-    <text x="350" y="132" class="small text">9.2%</text>
-  </g>
-
-  <g transform="translate(96 446)">
-    <rect width="988" height="144" rx="10" fill="#121C1B" stroke="#365B55"/>
-    <text x="22" y="34" class="mono green">Decision Board</text>
+    <rect width="988" height="336" rx="10" fill="#121C1B" stroke="#365B55"/>
+    <text x="22" y="34" class="mono green">LLM Decision Board</text>
+    <text x="22" y="66" class="small muted">source: reports/&lt;YYYY-MM&gt;/portfolio_analysis_report.md</text>
+    <text x="22" y="98" class="small cyan">Position Action Table</text>
     <line x1="22" y1="50" x2="966" y2="50" class="line"/>
-    <text x="22" y="78" class="small muted">Action</text>
-    <text x="154" y="78" class="small muted">Code</text>
-    <text x="270" y="78" class="small muted">Weight</text>
-    <text x="390" y="78" class="small muted">PnL%</text>
-    <text x="512" y="78" class="small muted">Reason</text>
-    <text x="22" y="108" class="small yellow">Trim</text>
-    <text x="154" y="108" class="small text">005930</text>
-    <text x="270" y="108" class="small text">18.7%</text>
-    <text x="390" y="108" class="small green">+9.72%</text>
-    <text x="512" y="108" class="small text">LLM: rule limit breached</text>
-    <text x="22" y="134" class="small cyan">Hold</text>
-    <text x="154" y="134" class="small text">000660</text>
-    <text x="270" y="134" class="small text">14.5%</text>
-    <text x="390" y="134" class="small green">+13.89%</text>
-    <text x="512" y="134" class="small text">LLM: core thesis intact</text>
+    <line x1="22" y1="114" x2="966" y2="114" class="line"/>
+    <text x="22" y="144" class="small muted">Action</text>
+    <text x="138" y="144" class="small muted">Ticker</text>
+    <text x="246" y="144" class="small muted">Size</text>
+    <text x="420" y="144" class="small muted">Trigger</text>
+    <text x="660" y="144" class="small muted">Rationale</text>
+    <text x="22" y="184" class="small yellow">Trim</text>
+    <text x="138" y="184" class="small text">488080</text>
+    <text x="246" y="184" class="small text">13-14%</text>
+    <text x="420" y="184" class="small text">weight &gt; 15%</text>
+    <text x="660" y="184" class="small text">rule limit breached</text>
+    <text x="22" y="224" class="small yellow">Trim</text>
+    <text x="138" y="224" class="small text">233740</text>
+    <text x="246" y="224" class="small text">below 40%</text>
+    <text x="420" y="224" class="small text">theme exposure</text>
+    <text x="660" y="224" class="small text">leveraged concentration</text>
+    <text x="22" y="264" class="small red">Exit</text>
+    <text x="138" y="264" class="small text">038530</text>
+    <text x="246" y="264" class="small text">small lot</text>
+    <text x="420" y="264" class="small text">no thesis</text>
+    <text x="660" y="264" class="small text">loss position with weak signal</text>
+    <text x="22" y="304" class="small cyan">Hold</text>
+    <text x="138" y="304" class="small text">005930</text>
+    <text x="246" y="304" class="small text">current</text>
+    <text x="420" y="304" class="small text">thesis intact</text>
+    <text x="660" y="304" class="small text">core semiconductor exposure</text>
   </g>
 </svg>
