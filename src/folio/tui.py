@@ -44,7 +44,7 @@ def render_text_dashboard(balance: Balance, metrics: Metrics) -> None:
             f"w={row.weight:>5.1%} pnl={row.pnl_pct:>+7.2f}% "
             f"eval={row.eval_amount:>12,.0f} | {row.reason}"
         )
-    print("[R] refresh  [A] agentic report  [V] view latest report  [Q] quit")
+    print("[R] reload reports  [A] agentic report  [V] view latest report  [Q] quit")
 
 
 def run_dashboard(
@@ -98,7 +98,7 @@ def run_dashboard(
         """
         BINDINGS = [
             ("q", "quit", "Quit"),
-            ("r", "refresh", "Refresh"),
+            ("r", "refresh", "Reload"),
             ("a", "agentic", "Agent Report"),
             ("v", "view_report", "View Report"),
         ]
@@ -132,7 +132,7 @@ def run_dashboard(
                             yield Static(
                                 (
                                     "[b]Workflow[/b]\n"
-                                    "r refresh account\n"
+                                    "r reload latest reports\n"
                                     "a run agentic report\n"
                                     "v open latest report tab\n"
                                     "q quit"

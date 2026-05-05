@@ -150,6 +150,19 @@ folio report \
 
 이 옵션을 넣지 않으면 folio는 개인 출금 일정이나 현금 필요를 가정하지 않습니다.
 
+## 아키텍처
+
+`kis-folio`는 로컬 우선 구조로 동작합니다.
+
+1. **Input**: KIS OpenAPI 또는 `--mock` 데이터에서 계좌 잔고, 현금, 보유 종목, 현재가를 읽습니다.
+2. **Fact layer**: SQLite에 스냅샷을 저장하고 `portfolio_snapshot.md`와 기본 리스크 지표를 생성합니다.
+3. **Deterministic briefs**: HHI, Top3 비중, 레버리지, 현금 비중 같은 규칙 기반 브리프를 만듭니다.
+4. **Agent layer**: `--agentic` 실행 시 LangGraph가 7개 분석가와 조건부 debate/review를 실행합니다.
+5. **Synthesis**: Portfolio Manager가 최종 리포트를 만들고, 누락 시 `Position Action Table`을 보강합니다.
+6. **TUI/Outputs**: TUI가 최신 Decision, Agents, Report, SVG 산출물을 로컬 파일에서 다시 읽어 보여줍니다.
+
+주문 실행 API는 연결하지 않습니다. LLM을 사용할 때만 사용자가 설정한 OpenRouter/OpenAI-compatible provider로 리포트 입력이 전송됩니다.
+
 ## 산출물
 
 `reports/<YYYY-MM>/`에 아래 파일이 생성됩니다.
