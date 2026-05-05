@@ -139,9 +139,9 @@ agentic workflow는 7개 초기 분석가, 라운드당 3개 debate/review agent
 
 ```bash
 folio report \
-  --cash-need 50000000 \
-  --needed-by 2026-05-28 \
-  --withdraw-by 2026-05-25
+  --cash-need <필요한_현금_금액> \
+  --needed-by <돈이_필요한_날짜> \
+  --withdraw-by <출금해야_하는_마감일>
 ```
 
 ## 산출물

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -261,7 +262,7 @@ def render_file_manifest_text(period: str | None = None) -> str:
         ("portfolio_snapshot.md", "fact-only portfolio input"),
         ("portfolio_agent_briefs.md", "deterministic analyst briefs"),
         ("portfolio_multi_agent_runs.md", "role-by-role LLM outputs"),
-        ("portfolio_workflow_trace.md", "engine, events, token and cost trace"),
+        ("portfolio_workflow_trace.md", "engine and agent event trace"),
         ("portfolio_visual.svg", "visual portfolio summary"),
         ("portfolio_analysis_report.md", "final action-oriented report"),
     ]
@@ -300,12 +301,14 @@ def render_agent_runs_for_tui(markdown: str, max_chars_per_agent: int = 1800) ->
         "Each block is one agent run. Use the final Report tab for the PM synthesis.",
         "",
     ]
-    for index, section in enumerate(sections, start=1):
+    for section in sections:
         title = section[0].lstrip("# ").strip()
-        body = "\n".join(section[1:]).strip()
+        metadata = extract_agent_metadata(section)
+        body = strip_agent_metadata(section[1:])
         lines.extend(
             [
-                f"[b]{index}. {title}[/b]",
+                f"[b]{title}[/b]",
+                format_agent_metadata(metadata),
                 "-" * 72,
                 clip_text(body, max_chars=max_chars_per_agent),
                 "",
@@ -314,11 +317,54 @@ def render_agent_runs_for_tui(markdown: str, max_chars_per_agent: int = 1800) ->
     return "\n".join(lines).rstrip()
 
 
+def extract_agent_metadata(section: list[str]) -> dict[str, str]:
+    metadata: dict[str, str] = {}
+    body = "\n".join(section)
+    for key in ["model", "debate_round", "source_agent_runs", "action_label", "risk_level"]:
+        for line in body.splitlines():
+            stripped = line.strip().strip("-").strip()
+            if stripped.lower().startswith(f"{key}:"):
+                metadata[key] = stripped.split(":", 1)[1].strip().strip("`")
+                break
+    return metadata
+
+
+def format_agent_metadata(metadata: dict[str, str]) -> str:
+    fields = [
+        ("model", metadata.get("model", "-")),
+        ("round", metadata.get("debate_round", "-")),
+        ("action", metadata.get("action_label", "-")),
+        ("risk", metadata.get("risk_level", "-")),
+    ]
+    if "source_agent_runs" in metadata:
+        fields.append(("sources", metadata["source_agent_runs"]))
+    return " | ".join(f"{label}: `{value}`" for label, value in fields)
+
+
+def strip_agent_metadata(lines: list[str]) -> str:
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        is_metadata = stripped.startswith("- model:") or stripped.startswith("- debate_round:")
+        is_metadata = is_metadata or stripped.startswith("- source_agent_runs:")
+        is_metadata = is_metadata or stripped.startswith("- token_usage:")
+        if is_metadata:
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def split_agent_sections(markdown: str) -> list[list[str]]:
+    lines = markdown.splitlines()
+    require_metadata = "# Multi-Agent Runs" in markdown
     sections: list[list[str]] = []
     current: list[str] = []
-    for line in markdown.splitlines():
-        if line.startswith("## "):
+    for index, line in enumerate(lines):
+        starts_agent_section = line.startswith("## ")
+        if starts_agent_section and require_metadata:
+            lookahead = "\n".join(lines[index + 1 : index + 7])
+            starts_agent_section = "- model:" in lookahead
+        if starts_agent_section:
             if current:
                 sections.append(current)
             current = [line]
@@ -341,22 +387,19 @@ def extract_decision_text(markdown: str) -> str:
     position_table = extract_position_action_table(markdown)
     if position_table:
         return "\n".join(["[b]Position Action Table[/b]", position_table])
-    action_items = extract_markdown_section(markdown, "## Action Items")
-    if action_items:
-        return "\n".join(
-            [
-                "[b]Action Items[/b]",
-                "Position Action Table was not found in the latest report; showing action items.",
-                "",
-                clip_text(action_items, max_chars=9000),
-            ]
-        )
     decision_summary = extract_markdown_section(markdown, "## Decision Summary")
     if decision_summary:
-        return "\n".join(["[b]Decision Summary[/b]", clip_text(decision_summary, max_chars=5000)])
+        return "\n".join(
+            [
+                "[b]Decision Summary[/b]",
+                "Position Action Table was not found. Regenerate the report to repair it.",
+                "",
+                clip_text(decision_summary, max_chars=5000),
+            ]
+        )
     return (
-        "Latest report found, but it has no Decision Summary, Position Action Table, "
-        "or Action Items section. Regenerate with `folio report --agentic`."
+        "Latest report found, but it has no Position Action Table or Decision Summary. "
+        "Regenerate with `folio report --agentic`."
     )
 
 
@@ -412,4 +455,24 @@ def read_latest_workflow_trace(reports_dir: Path = Path("reports")) -> str:
     candidates = sorted(reports_dir.glob("*/portfolio_workflow_trace.md"), reverse=True)
     if not candidates:
         return "No workflow trace found. Generate one with `folio report --agentic`."
-    return clip_text(candidates[0].read_text(encoding="utf-8"))
+    return render_workflow_trace_for_tui(candidates[0].read_text(encoding="utf-8"))
+
+
+def render_workflow_trace_for_tui(markdown: str) -> str:
+    hidden_prefixes = (
+        "- max_planned_llm_calls:",
+        "- total_tokens_reported:",
+        "- total_cost_reported:",
+    )
+    lines = []
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(hidden_prefixes):
+            continue
+        line = re.sub(
+            r"final report generated with [^|]*tokens",
+            "final report generated",
+            line,
+        )
+        lines.append(line)
+    return clip_text("\n".join(lines), max_chars=12000)

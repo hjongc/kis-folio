@@ -135,7 +135,7 @@ Examples:
 To reflect cash needs:
 
 ```bash
-folio report --period 2026-05 --cash-need 50000000 --needed-by 2026-05-28 --withdraw-by 2026-05-25
+folio report --period <YYYY-MM> --cash-need <amount_krw> --needed-by <date> --withdraw-by <date>
 ```
 
 ## Data Coverage

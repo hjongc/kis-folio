@@ -6,6 +6,7 @@ from folio.terminal import (
     ACTION_WATCH,
     build_terminal_dashboard,
     clip_text,
+    extract_agent_metadata,
     extract_decision_text,
     extract_position_action_table,
     read_latest_agent_runs_text,
@@ -14,6 +15,7 @@ from folio.terminal import (
     render_agent_runs_for_tui,
     render_decision_text,
     render_file_manifest_text,
+    render_workflow_trace_for_tui,
     split_agent_sections,
     text_bar,
 )
@@ -109,26 +111,22 @@ def test_extract_position_action_table_reads_latest_report_section() -> None:
     assert "Health Score" not in table
 
 
-def test_extract_decision_text_falls_back_to_action_items() -> None:
+def test_extract_decision_text_falls_back_to_decision_summary() -> None:
     markdown = """
-## Executive Summary
+## Decision Summary
 
-summary
-
-## Action Items
-
-| # | Trigger | Action | Size |
-|---|---|---|---|
-| A1 | now | trim | 1% |
+| 항목 | 판단 |
+|---|---|
+| Overall Stance | Hold |
 
 ## Next Section
 """
 
     text = extract_decision_text(markdown)
 
-    assert "Action Items" in text
+    assert "Decision Summary" in text
     assert "Position Action Table was not found" in text
-    assert "A1" in text
+    assert "Overall Stance" in text
     assert "Next Section" not in text
 
 
@@ -170,8 +168,11 @@ risk output
 
     text = render_agent_runs_for_tui(markdown)
 
-    assert "1. Allocation Analyst" in text
-    assert "2. Risk Manager" in text
+    assert "Allocation Analyst" in text
+    assert "Risk Manager" in text
+    assert "round: `1`" in text
+    assert "action: `Trim`" in text
+    assert "risk: `high`" in text
     assert "action_label: Trim" in text
 
 
@@ -180,3 +181,49 @@ def test_split_agent_sections_returns_role_sections() -> None:
 
     assert len(sections) == 2
     assert sections[0][0] == "## A"
+
+
+def test_extract_agent_metadata_reads_role_decision_lines() -> None:
+    section = [
+        "## Risk Manager",
+        "- model: `advisor`",
+        "- debate_round: `2`",
+        "- token_usage: `hidden`",
+        "action_label: Watch",
+        "risk_level: high",
+    ]
+
+    metadata = extract_agent_metadata(section)
+
+    assert metadata["model"] == "advisor"
+    assert metadata["debate_round"] == "2"
+    assert metadata["action_label"] == "Watch"
+    assert metadata["risk_level"] == "high"
+
+
+def test_render_workflow_trace_for_tui_hides_internal_budget_lines() -> None:
+    markdown = """
+# Portfolio Workflow Trace
+
+## Summary
+
+- engine: `langgraph`
+- max_planned_llm_calls: 17
+- total_tokens_reported: 100
+- total_cost_reported: 0.10
+- completed_debate_rounds: 1
+
+## Events
+
+| node | detail |
+|---|---|
+| Portfolio Manager | final report generated with 300 tokens |
+"""
+
+    text = render_workflow_trace_for_tui(markdown)
+
+    assert "max_planned_llm_calls" not in text
+    assert "total_tokens_reported" not in text
+    assert "total_cost_reported" not in text
+    assert "completed_debate_rounds" in text
+    assert "final report generated" in text
