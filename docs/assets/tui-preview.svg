@@ -1,0 +1,106 @@
+<svg width="1180" height="720" viewBox="0 0 1180 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">kis-folio terminal dashboard preview</title>
+  <desc id="desc">A preview of the kis-folio TUI showing overview, decision board, holdings, agents, report, and generated files tabs.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1180" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101820"/>
+      <stop offset="0.54" stop-color="#13251F"/>
+      <stop offset="1" stop-color="#1C1B27"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="70" y1="82" x2="1110" y2="642" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17212B"/>
+      <stop offset="1" stop-color="#111719"/>
+    </linearGradient>
+    <filter id="shadow" x="30" y="52" width="1120" height="640" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="22" flood-color="#000000" flood-opacity="0.35" stdDeviation="22"/>
+    </filter>
+    <style>
+      .title { fill: #ECFDF5; font: 700 30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { font: 500 17px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .small { font: 500 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .muted { fill: #8EA3A2; }
+      .text { fill: #DCE8E5; }
+      .green { fill: #6EE7B7; }
+      .yellow { fill: #FCD34D; }
+      .red { fill: #FDA4AF; }
+      .cyan { fill: #67E8F9; }
+      .line { stroke: #2E4745; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1180" height="720" rx="28" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <rect x="70" y="80" width="1040" height="560" rx="16" fill="url(#panel)" stroke="#33514E"/>
+    <rect x="70" y="80" width="1040" height="46" rx="16" fill="#22312E"/>
+    <circle cx="100" cy="103" r="7" fill="#FDA4AF"/>
+    <circle cx="124" cy="103" r="7" fill="#FCD34D"/>
+    <circle cx="148" cy="103" r="7" fill="#6EE7B7"/>
+    <text x="182" y="110" class="small muted">folio tui --mock</text>
+  </g>
+
+  <text x="98" y="168" class="title">kis-folio</text>
+  <text x="254" y="167" class="mono muted">local-first portfolio command center</text>
+
+  <g transform="translate(96 196)">
+    <rect width="988" height="34" rx="8" fill="#203631"/>
+    <text x="18" y="23" class="small green">Overview</text>
+    <text x="118" y="23" class="small text">Decision</text>
+    <text x="222" y="23" class="small text">Holdings</text>
+    <text x="332" y="23" class="small text">Agents</text>
+    <text x="426" y="23" class="small text">Report</text>
+    <text x="516" y="23" class="small text">Files</text>
+    <text x="780" y="23" class="small muted">r refresh  a agent report  q quit</text>
+  </g>
+
+  <g transform="translate(96 254)">
+    <rect width="470" height="162" rx="10" fill="#121C1B" stroke="#365B55"/>
+    <text x="22" y="34" class="mono green">Overall  Trim</text>
+    <text x="22" y="66" class="small text">concentration or leverage exposure is elevated</text>
+    <text x="22" y="102" class="small muted">HHI</text>
+    <text x="92" y="102" class="small text">0.234</text>
+    <text x="180" y="102" class="small muted">Top3</text>
+    <text x="260" y="102" class="small yellow">54.1%</text>
+    <text x="350" y="102" class="small muted">Cash</text>
+    <text x="412" y="102" class="small text">9.2%</text>
+    <rect x="22" y="126" width="426" height="10" rx="5" fill="#243432"/>
+    <rect x="22" y="126" width="230" height="10" rx="5" fill="#FCD34D"/>
+  </g>
+
+  <g transform="translate(612 254)">
+    <rect width="472" height="162" rx="10" fill="#121C1B" stroke="#365B55"/>
+    <text x="22" y="34" class="mono cyan">Allocation</text>
+    <text x="22" y="68" class="small muted">ETF</text>
+    <rect x="104" y="56" width="220" height="12" rx="6" fill="#253936"/>
+    <rect x="104" y="56" width="150" height="12" rx="6" fill="#67E8F9"/>
+    <text x="350" y="68" class="small text">68.4%</text>
+    <text x="22" y="100" class="small muted">Stock</text>
+    <rect x="104" y="88" width="220" height="12" rx="6" fill="#253936"/>
+    <rect x="104" y="88" width="56" height="12" rx="6" fill="#6EE7B7"/>
+    <text x="350" y="100" class="small text">25.6%</text>
+    <text x="22" y="132" class="small muted">Cash</text>
+    <rect x="104" y="120" width="220" height="12" rx="6" fill="#253936"/>
+    <rect x="104" y="120" width="20" height="12" rx="6" fill="#FCD34D"/>
+    <text x="350" y="132" class="small text">9.2%</text>
+  </g>
+
+  <g transform="translate(96 446)">
+    <rect width="988" height="144" rx="10" fill="#121C1B" stroke="#365B55"/>
+    <text x="22" y="34" class="mono green">Decision Board</text>
+    <line x1="22" y1="50" x2="966" y2="50" class="line"/>
+    <text x="22" y="78" class="small muted">Action</text>
+    <text x="154" y="78" class="small muted">Code</text>
+    <text x="270" y="78" class="small muted">Weight</text>
+    <text x="390" y="78" class="small muted">PnL%</text>
+    <text x="512" y="78" class="small muted">Reason</text>
+    <text x="22" y="108" class="small yellow">Trim</text>
+    <text x="154" y="108" class="small text">005930</text>
+    <text x="270" y="108" class="small text">18.7%</text>
+    <text x="390" y="108" class="small green">+9.72%</text>
+    <text x="512" y="108" class="small text">position above 15% weight</text>
+    <text x="22" y="134" class="small cyan">Hold</text>
+    <text x="154" y="134" class="small text">000660</text>
+    <text x="270" y="134" class="small text">14.5%</text>
+    <text x="390" y="134" class="small green">+13.89%</text>
+    <text x="512" y="134" class="small text">no deterministic trim/exit trigger</text>
+  </g>
+</svg>

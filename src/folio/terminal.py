@@ -43,6 +43,15 @@ class TerminalDashboard:
     allocation_bars: list[tuple[str, float]]
 
 
+ACTION_TONE = {
+    ACTION_INCREASE: "green",
+    ACTION_HOLD: "cyan",
+    ACTION_TRIM: "yellow",
+    ACTION_EXIT: "red",
+    ACTION_WATCH: "magenta",
+}
+
+
 def build_terminal_dashboard(balance: Balance, metrics: Metrics) -> TerminalDashboard:
     asset_total = balance.asset_total
     positions = sorted(balance.positions, key=lambda item: item.eval_amount, reverse=True)
@@ -141,15 +150,91 @@ def text_bar(ratio: float, width: int = 24) -> str:
     return "#" * filled + "-" * (width - filled)
 
 
+def render_decision_text(dashboard: TerminalDashboard, limit: int = 12) -> str:
+    lines = [
+        "[b]Decision Board[/b]",
+        f"Portfolio stance: [{ACTION_TONE[dashboard.overall_action]}]"
+        f"{dashboard.overall_action}[/] - {dashboard.overall_reason}",
+        "",
+        "Action     Code     Weight    PnL%       Eval KRW        Reason",
+        "-" * 78,
+    ]
+    for row in dashboard.positions[:limit]:
+        action = f"[{ACTION_TONE[row.action]}]{row.action:<9}[/]"
+        lines.append(
+            f"{action} {row.code:<8} {row.weight:>6.1%} "
+            f"{row.pnl_pct:>+8.2f}% {row.eval_amount:>14,.0f}  {row.reason}"
+        )
+    lines.extend(
+        [
+            "",
+            "[b]Legend[/b]",
+            "Increase: add only when the report gives a trigger and sizing.",
+            "Hold: no deterministic action from the current snapshot.",
+            "Trim: reduce concentration, leverage, or oversized exposure.",
+            "Exit: thesis damage or loss threshold requires explicit review.",
+            "Watch: wait for invalidation or entry trigger before acting.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_overview_text(dashboard: TerminalDashboard) -> str:
+    return "\n".join(
+        [
+            "[b]Account Snapshot[/b]",
+            f"Account     {dashboard.account_id}",
+            f"Total       {dashboard.asset_total:,.0f} KRW",
+            f"Invested    {dashboard.eval_total:,.0f} KRW",
+            f"Cash        {dashboard.cash:,.0f} KRW ({dashboard.cash_weight:.1%})",
+            f"PnL         {dashboard.pnl_total:,.0f} KRW",
+            "",
+            "[b]Risk Gauges[/b]",
+            f"HHI         {dashboard.hhi:.3f}",
+            f"Top 3       {dashboard.top3:.1%}",
+            f"Leverage    {dashboard.leverage_weight:.1%}",
+        ]
+    )
+
+
+def render_allocation_text(dashboard: TerminalDashboard) -> str:
+    lines = ["[b]Allocation[/b]"]
+    for label, ratio in dashboard.allocation_bars:
+        lines.append(f"{label:<9} {text_bar(ratio, width=22)} {ratio:>6.1%}")
+    return "\n".join(lines)
+
+
+def render_file_manifest_text(period: str | None = None) -> str:
+    base = f"reports/{period}/" if period else "reports/<YYYY-MM>/"
+    files = [
+        ("portfolio_snapshot.md", "fact-only portfolio input"),
+        ("portfolio_agent_briefs.md", "deterministic analyst briefs"),
+        ("portfolio_multi_agent_runs.md", "role-by-role LLM outputs"),
+        ("portfolio_workflow_trace.md", "engine, events, token and cost trace"),
+        ("portfolio_visual.svg", "visual portfolio summary"),
+        ("portfolio_analysis_report.md", "final action-oriented report"),
+    ]
+    lines = [f"[b]Output Folder[/b] {base}", ""]
+    lines.extend(f"{name:<34} {description}" for name, description in files)
+    return "\n".join(lines)
+
+
+def clip_text(text: str, max_chars: int = 12000) -> str:
+    if len(text) <= max_chars:
+        return text
+    suffix = "\n\n[truncated in TUI; open the markdown file for full text]"
+    return text[:max_chars].rstrip() + suffix
+
+
 def read_latest_report_text(reports_dir: Path = Path("reports")) -> str:
     candidates = sorted(reports_dir.glob("*/portfolio_analysis_report.md"), reverse=True)
     if not candidates:
         return "No report found. Generate one with `folio report --agentic`."
-    return candidates[0].read_text(encoding="utf-8")
+    return clip_text(candidates[0].read_text(encoding="utf-8"))
 
 
 def read_latest_workflow_trace(reports_dir: Path = Path("reports")) -> str:
     candidates = sorted(reports_dir.glob("*/portfolio_workflow_trace.md"), reverse=True)
     if not candidates:
         return "No workflow trace found. Generate one with `folio report --agentic`."
-    return candidates[0].read_text(encoding="utf-8")
+    return clip_text(candidates[0].read_text(encoding="utf-8"))

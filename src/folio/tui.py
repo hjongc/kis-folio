@@ -10,6 +10,10 @@ from .terminal import (
     build_terminal_dashboard,
     read_latest_report_text,
     read_latest_workflow_trace,
+    render_allocation_text,
+    render_decision_text,
+    render_file_manifest_text,
+    render_overview_text,
     text_bar,
 )
 
@@ -51,7 +55,7 @@ def run_dashboard(
     dashboard = build_terminal_dashboard(balance, metrics)
     try:
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
+        from textual.containers import Horizontal, ScrollableContainer, Vertical
         from textual.widgets import DataTable, Footer, Header, Label, Static, TabbedContent, TabPane
     except ImportError:
         render_text_dashboard(balance, metrics)
@@ -66,6 +70,12 @@ def run_dashboard(
             height: auto;
             padding: 1 2;
             border: round $primary;
+            margin: 0 1 1 1;
+        }
+        .hero {
+            height: auto;
+            padding: 1 2;
+            border: heavy $accent;
             margin: 0 1 1 1;
         }
         .muted {
@@ -95,17 +105,16 @@ def run_dashboard(
             yield Header(show_clock=True)
             with TabbedContent():
                 with TabPane("Overview", id="overview"):
+                    yield Static(
+                        (
+                            "[b]kis-folio[/b] local-first portfolio command center\n"
+                            "Read-only KIS account analysis with deterministic risk gates "
+                            "and optional LangGraph reports."
+                        ),
+                        classes="hero",
+                    )
                     with Horizontal(id="overview-grid"):
                         with Vertical(id="left"):
-                            yield Static(
-                                (
-                                    f"[b]Total[/b] {dashboard.asset_total:,.0f} KRW\n"
-                                    f"[b]Invested[/b] {dashboard.eval_total:,.0f} KRW\n"
-                                    f"[b]Cash[/b] {dashboard.cash:,.0f} KRW\n"
-                                    f"[b]PnL[/b] {dashboard.pnl_total:,.0f} KRW"
-                                ),
-                                classes="card",
-                            )
                             yield Static(
                                 (
                                     f"[b]Overall[/b] {dashboard.overall_action}\n"
@@ -115,13 +124,9 @@ def run_dashboard(
                                 ),
                                 classes="card",
                             )
+                            yield Static(render_overview_text(dashboard), classes="card")
                         with Vertical(id="right"):
-                            allocation_lines = ["[b]Allocation[/b]"]
-                            for label, ratio in dashboard.allocation_bars:
-                                allocation_lines.append(
-                                    f"{label:<8} {text_bar(ratio, width=18)} {ratio:>6.1%}"
-                                )
-                            yield Static("\n".join(allocation_lines), classes="card")
+                            yield Static(render_allocation_text(dashboard), classes="card")
                             yield Static(
                                 (
                                     "[b]Workflow[/b]\n"
@@ -132,6 +137,8 @@ def run_dashboard(
                                 ),
                                 classes="card",
                             )
+                with TabPane("Decision", id="decision"):
+                    yield Static(render_decision_text(dashboard), classes="card")
                 with TabPane("Holdings", id="holdings"):
                     table = DataTable(zebra_stripes=True)
                     table.add_columns(
@@ -149,34 +156,26 @@ def run_dashboard(
                         )
                     yield table
                 with TabPane("Agents", id="agents"):
-                    yield Static(
-                        (
-                            "[b]Agent Workflow[/b]\n"
-                            "7 analyst fan-out -> bull/bear/risk debate -> PM synthesis\n\n"
-                            f"{read_latest_workflow_trace()}"
-                        ),
-                        classes="card",
-                        id="agent-trace",
-                    )
+                    with ScrollableContainer():
+                        yield Static(
+                            (
+                                "[b]Agent Workflow[/b]\n"
+                                "7 analyst fan-out -> bull/bear/risk debate -> PM synthesis\n\n"
+                                f"{read_latest_workflow_trace()}"
+                            ),
+                            classes="card",
+                            id="agent-trace",
+                        )
                 with TabPane("Report", id="report"):
-                    yield Static(
-                        read_latest_report_text(),
-                        classes="card",
-                        id="report-body",
-                    )
+                    with ScrollableContainer():
+                        yield Static(
+                            read_latest_report_text(),
+                            classes="card",
+                            id="report-body",
+                        )
                 with TabPane("Files", id="files"):
                     yield Label("Generated outputs")
-                    yield Static(
-                        (
-                            "portfolio_snapshot.md\n"
-                            "portfolio_agent_briefs.md\n"
-                            "portfolio_multi_agent_runs.md\n"
-                            "portfolio_workflow_trace.md\n"
-                            "portfolio_visual.svg\n"
-                            "portfolio_analysis_report.md"
-                        ),
-                        classes="card",
-                    )
+                    yield Static(render_file_manifest_text(), classes="card")
             yield Footer()
 
         def action_refresh(self) -> None:

@@ -60,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--network", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
 
+    tui = sub.add_parser("tui")
+    tui.add_argument("--mock", action="store_true")
+    tui.set_defaults(func=cmd_tui)
+
     status = sub.add_parser("status")
     status.add_argument("--mock", action="store_true")
     status.set_defaults(func=cmd_status)
@@ -365,7 +369,7 @@ def cmd_report(args: argparse.Namespace, settings, repo_root: Path) -> int:
 
 def cmd_tui(args: argparse.Namespace, settings, repo_root: Path) -> int:
     account_id = current_account_id(settings)
-    snapshot, _from_fallback = load_snapshot(False, settings, account_id)
+    snapshot, _from_fallback = load_snapshot(getattr(args, "mock", False), settings, account_id)
     balance = snapshot.balance
     run_dashboard(
         balance,

@@ -3,8 +3,11 @@ from folio.mock_data import mock_balance
 from folio.terminal import (
     ACTION_TRIM,
     build_terminal_dashboard,
+    clip_text,
     read_latest_report_text,
     read_latest_workflow_trace,
+    render_decision_text,
+    render_file_manifest_text,
     text_bar,
 )
 
@@ -31,6 +34,31 @@ def test_text_bar_has_stable_width() -> None:
     assert len(text_bar(0.5, width=10)) == 10
     assert text_bar(2.0, width=10) == "##########"
     assert text_bar(-1.0, width=10) == "----------"
+
+
+def test_render_decision_text_contains_action_table() -> None:
+    balance = mock_balance("main")
+    dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
+    text = render_decision_text(dashboard)
+
+    assert "Decision Board" in text
+    assert "Action" in text
+    assert "Legend" in text
+    assert "Trim" in text
+
+
+def test_render_file_manifest_text_lists_outputs() -> None:
+    text = render_file_manifest_text("2026-05")
+
+    assert "reports/2026-05/" in text
+    assert "portfolio_analysis_report.md" in text
+
+
+def test_clip_text_truncates_long_text() -> None:
+    text = clip_text("x" * 20, max_chars=10)
+
+    assert text.startswith("xxxxxxxxxx")
+    assert "truncated" in text
 
 
 def test_latest_report_readers_return_empty_state(tmp_path) -> None:
