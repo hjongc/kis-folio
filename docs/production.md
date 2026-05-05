@@ -63,6 +63,9 @@ This writes:
 
 Use `--no-llm` to generate only the fact snapshot without an OpenRouter call.
 Use `--agentic` to run role-by-role LLM agents before final synthesis.
+The final report should start with `Decision Summary` and `Position Action Table`.
+If the table is missing, folio runs a repair LLM call and inserts a ticker-level
+action table for the TUI Decision tab.
 
 ## LLM Providers
 
@@ -97,6 +100,8 @@ By default this is 7 analyst agents + conditional debate/review with up to 3
 rounds + 1 Portfolio Manager synthesis. If analyst opinions already converge,
 the debate is skipped or stopped early. All agent outputs, including the
 Portfolio Manager synthesis, are rendered in `portfolio_multi_agent_runs.md`.
+The TUI Agents tab groups this file by actual agent role and hides verbose token
+usage details so users can inspect each role's conclusion and rationale.
 
 The default engine is `langgraph`. The project targets Python 3.12 and includes
 LangGraph as a required dependency. The local DAG executor remains available for
@@ -115,8 +120,12 @@ Production controls:
 - `--deep`: route all agents to the deep model.
 
 The workflow trace records engine selection, node attempts, duration, and
-reported token/cost totals. Agent outputs are stored in SQLite `agent_runs` and
-also rendered to `portfolio_multi_agent_runs.md`.
+debate progression. Agent outputs are stored in SQLite `agent_runs` and also
+rendered to `portfolio_multi_agent_runs.md`.
+
+In the TUI, `r` reloads the latest local report files (`Decision`, `Agents`,
+and `Report`) without rerunning the account API. Use `a` to generate a fresh
+agentic report from the current snapshot.
 
 ## Git Convention
 
@@ -137,6 +146,9 @@ To reflect cash needs:
 ```bash
 folio report --period <YYYY-MM> --cash-need <amount_krw> --needed-by <date> --withdraw-by <date>
 ```
+
+Cash-need constraints are optional. If they are omitted, agents must not assume
+a personal withdrawal schedule.
 
 ## Data Coverage
 

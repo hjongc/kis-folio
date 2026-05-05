@@ -49,7 +49,7 @@
     <text x="332" y="23" class="small text">Agents</text>
     <text x="426" y="23" class="small text">Report</text>
     <text x="516" y="23" class="small text">Files</text>
-    <text x="780" y="23" class="small muted">r refresh  a agent report  q quit</text>
+    <text x="760" y="23" class="small muted">r reload  a agent report  q quit</text>
   </g>
 
   <g transform="translate(96 254)">
@@ -96,11 +96,11 @@
     <text x="154" y="108" class="small text">005930</text>
     <text x="270" y="108" class="small text">18.7%</text>
     <text x="390" y="108" class="small green">+9.72%</text>
-    <text x="512" y="108" class="small text">position above 15% weight</text>
+    <text x="512" y="108" class="small text">LLM: rule limit breached</text>
     <text x="22" y="134" class="small cyan">Hold</text>
     <text x="154" y="134" class="small text">000660</text>
     <text x="270" y="134" class="small text">14.5%</text>
     <text x="390" y="134" class="small green">+13.89%</text>
-    <text x="512" y="134" class="small text">no deterministic trim/exit trigger</text>
+    <text x="512" y="134" class="small text">LLM: core thesis intact</text>
   </g>
 </svg>

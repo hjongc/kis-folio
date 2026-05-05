@@ -62,8 +62,8 @@
   <text class="text" x="674" y="360">Debate review</text>
   <text class="small" x="674" y="379">bull, bear, risk</text>
   <rect class="node" x="654" y="418" width="178" height="62" />
-  <text class="text" x="674" y="444">Cost guards</text>
-  <text class="small" x="674" y="463">calls, tokens, cost</text>
+  <text class="text" x="674" y="444">Decision repair</text>
+  <text class="small" x="674" y="463">position action table</text>
 
   <rect class="panel" x="924" y="112" width="154" height="360" />
   <text class="section" x="948" y="144">Outputs</text>

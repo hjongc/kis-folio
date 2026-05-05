@@ -86,7 +86,7 @@ folio tui --mock   # 데모 데이터 TUI
 
 | Key | 동작 |
 |---|---|
-| `r` | 계좌 갱신 안내 |
+| `r` | 최신 로컬 리포트/Decision/Agents 파일 다시 읽기 |
 | `a` | LangGraph agentic report 생성 |
 | `v` | 최신 리포트 위치 안내 |
 | `q` | 종료 |
@@ -96,9 +96,9 @@ folio tui --mock   # 데모 데이터 TUI
 | 탭 | 내용 |
 |---|---|
 | Overview | 총자산, 현금, 손익, HHI, Top3, 레버리지, 자산 배분 |
-| Decision | 종목별 `Increase / Hold / Trim / Exit / Watch` 보드와 판단 근거 |
+| Decision | LLM 리포트의 `Position Action Table`: 종목별 조치, 규모, 트리거, 근거 |
 | Holdings | 보유 종목 테이블 |
-| Agents | LangGraph 실행 흐름, 토큰/비용, 에이전트 상태 |
+| Agents | LangGraph 실행 흐름과 역할별 에이전트 출력 |
 | Report | 최신 최종 리포트 미리보기 |
 | Files | 생성되는 markdown/SVG 파일 목록 |
 
@@ -135,6 +135,10 @@ agentic workflow는 7개 초기 분석가, 라운드당 3개 debate/review agent
 그리고 1개 Portfolio Manager synthesis로 구성됩니다. 기본 debate round는 최대 3회이며,
 에이전트 의견이 수렴하면 토론을 건너뛰거나 조기 종료합니다.
 
+최종 리포트 앞부분에는 `Decision Summary`와 `Position Action Table`이 생성됩니다.
+`Position Action Table`이 누락되면 한 번 더 LLM 보강 호출을 실행해 TUI Decision 탭이
+종목별 `Action / Size / Trigger / Rationale / Confidence`를 표시할 수 있게 합니다.
+
 특정 날짜까지 현금이 필요한 경우:
 
 ```bash
@@ -143,6 +147,8 @@ folio report \
   --needed-by <돈이_필요한_날짜> \
   --withdraw-by <출금해야_하는_마감일>
 ```
+
+이 옵션을 넣지 않으면 folio는 개인 출금 일정이나 현금 필요를 가정하지 않습니다.
 
 ## 산출물
 
@@ -153,9 +159,9 @@ folio report \
 | `portfolio_snapshot.md` | LLM 입력용 fact-only 계좌 스냅샷 |
 | `portfolio_agent_briefs.md` | 결정론적 리스크/성과/배분 브리프 |
 | `portfolio_multi_agent_runs.md` | agentic 실행 시 역할별 LLM 출력 |
-| `portfolio_workflow_trace.md` | 엔진, 이벤트, 재시도, 토큰, 비용 추적 |
+| `portfolio_workflow_trace.md` | 엔진, 이벤트, 재시도, debate 라운드 추적 |
 | `portfolio_visual.svg` | 포트폴리오 시각 요약 |
-| `portfolio_analysis_report.md` | 최종 분석 리포트 |
+| `portfolio_analysis_report.md` | Decision Summary와 Position Action Table을 포함한 최종 리포트 |
 
 ![kis-folio workflow](docs/assets/workflow.svg)
 
