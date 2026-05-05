@@ -7,10 +7,12 @@ from folio.terminal import (
     build_terminal_dashboard,
     clip_text,
     extract_position_action_table,
+    read_latest_agent_runs_text,
     read_latest_report_text,
     read_latest_workflow_trace,
     render_decision_text,
     render_file_manifest_text,
+    render_snapshot_flags_text,
     text_bar,
 )
 
@@ -42,13 +44,31 @@ def test_text_bar_has_stable_width() -> None:
 def test_render_decision_text_contains_action_table() -> None:
     balance = mock_balance("main")
     dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
+    llm_table = "| 티커 | Action |\n|---|---|\n| 005930 | Hold |"
+    text = render_decision_text(dashboard, llm_decision_text=llm_table)
+
+    assert "LLM Decision Board" in text
+    assert "portfolio_analysis_report.md" in text
+    assert "005930" in text
+    assert "Deterministic" not in text
+
+
+def test_render_decision_text_without_report_prompts_agentic_run() -> None:
+    balance = mock_balance("main")
+    dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
     text = render_decision_text(dashboard)
 
-    assert "Decision Board" in text
-    assert "Action" in text
-    assert "Legend" in text
-    assert "Trim" in text
-    assert "no deterministic trim/exit trigger" not in text
+    assert "No LLM decision report found" in text
+    assert "folio report --agentic" in text
+
+
+def test_render_snapshot_flags_text_contains_local_rule_hints() -> None:
+    balance = mock_balance("main")
+    dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
+    text = render_snapshot_flags_text(dashboard)
+
+    assert "Local Snapshot Flags" in text
+    assert "rule-based risk hints" in text
     assert "sector" in text
 
 
@@ -107,3 +127,4 @@ def test_clip_text_truncates_long_text() -> None:
 def test_latest_report_readers_return_empty_state(tmp_path) -> None:
     assert "No report found" in read_latest_report_text(tmp_path)
     assert "No workflow trace found" in read_latest_workflow_trace(tmp_path)
+    assert "No agent run output found" in read_latest_agent_runs_text(tmp_path)

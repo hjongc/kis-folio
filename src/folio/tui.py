@@ -8,6 +8,7 @@ from .models import Balance, Metrics, Snapshot
 from .report_service import ReportRequest, generate_report
 from .terminal import (
     build_terminal_dashboard,
+    read_latest_agent_runs_text,
     read_latest_decision_table,
     read_latest_report_text,
     read_latest_workflow_trace,
@@ -15,6 +16,7 @@ from .terminal import (
     render_decision_text,
     render_file_manifest_text,
     render_overview_text,
+    render_snapshot_flags_text,
     text_bar,
 )
 
@@ -149,20 +151,19 @@ def run_dashboard(
                     )
                 with TabPane("Holdings", id="holdings"):
                     table = DataTable(zebra_stripes=True)
-                    table.add_columns(
-                        "Code", "Name", "Action", "Weight", "PnL%", "Eval", "Reason"
-                    )
+                    table.add_columns("Code", "Name", "Weight", "PnL%", "Eval", "Sector")
                     for row in dashboard.positions:
                         table.add_row(
                             row.code,
                             row.name,
-                            row.action,
                             f"{row.weight:.1%}",
                             f"{row.pnl_pct:+.2f}%",
                             f"{row.eval_amount:,.0f}",
-                            row.reason,
+                            row.sector,
                         )
                     yield table
+                with TabPane("Flags", id="flags"):
+                    yield Static(render_snapshot_flags_text(dashboard), classes="card")
                 with TabPane("Agents", id="agents"):
                     with ScrollableContainer():
                         yield Static(
@@ -174,6 +175,11 @@ def run_dashboard(
                             ),
                             classes="card",
                             id="agent-trace",
+                        )
+                        yield Static(
+                            read_latest_agent_runs_text(),
+                            classes="card",
+                            id="agent-runs",
                         )
                 with TabPane("Report", id="report"):
                     with ScrollableContainer():
@@ -250,6 +256,7 @@ def run_dashboard(
                 )
             )
             self.query_one("#agent-trace", Static).update(read_latest_workflow_trace())
+            self.query_one("#agent-runs", Static).update(read_latest_agent_runs_text())
             self.query_one("#report-body", Static).update(read_latest_report_text())
             self.notify(f"Report generated: {report_path}", timeout=8)
 

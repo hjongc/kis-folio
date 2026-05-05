@@ -199,30 +199,45 @@ def text_bar(ratio: float, width: int = 24) -> str:
 
 def render_decision_text(
     dashboard: TerminalDashboard,
-    limit: int = 12,
     llm_decision_text: str = "",
 ) -> str:
+    del dashboard
     lines = [
-        "[b]Decision Board[/b]",
-        f"Portfolio stance: [{ACTION_TONE[dashboard.overall_action]}]"
-        f"{dashboard.overall_action}[/] - {dashboard.overall_reason}",
+        "[b]LLM Decision Board[/b]",
+        "Source: latest `portfolio_analysis_report.md`",
         "",
     ]
     if llm_decision_text:
         lines.extend(
             [
-                "[b]Latest LLM Position Actions[/b]",
                 llm_decision_text,
                 "",
-                "[b]Deterministic Snapshot Rules[/b]",
+                "Run `a` to regenerate the agentic report after account changes.",
             ]
         )
+        return "\n".join(lines)
     lines.extend(
         [
-            "Action     Code     Weight    PnL%       Eval KRW        Reason",
-            "-" * 78,
+            "No LLM decision report found.",
+            "",
+            "Press `a` in the TUI or run `folio report --agentic` to generate:",
+            "- Position Action Table",
+            "- trigger/action/size rationale",
+            "- multi-agent debate output",
+            "- Portfolio Manager synthesis",
         ]
     )
+    return "\n".join(lines)
+
+
+def render_snapshot_flags_text(dashboard: TerminalDashboard, limit: int = 8) -> str:
+    lines = [
+        "[b]Local Snapshot Flags[/b]",
+        "These are rule-based risk hints, not LLM recommendations.",
+        "",
+        "Flag      Code     Weight    PnL%       Eval KRW        Signal",
+        "-" * 78,
+    ]
     for row in dashboard.positions[:limit]:
         action = f"[{ACTION_TONE[row.action]}]{row.action:<9}[/]"
         lines.append(
@@ -232,12 +247,7 @@ def render_decision_text(
     lines.extend(
         [
             "",
-            "[b]Legend[/b]",
-            "Increase: add only when the report gives a trigger and sizing.",
-            "Hold: no deterministic action from the current snapshot.",
-            "Trim: reduce concentration, leverage, or oversized exposure.",
-            "Exit: thesis damage or loss threshold requires explicit review.",
-            "Watch: wait for invalidation or entry trigger before acting.",
+            "For actual decision rationale, use the LLM Decision Board.",
         ]
     )
     return "\n".join(lines)
@@ -295,6 +305,13 @@ def read_latest_report_text(reports_dir: Path = Path("reports")) -> str:
     if not candidates:
         return "No report found. Generate one with `folio report --agentic`."
     return clip_text(candidates[0].read_text(encoding="utf-8"))
+
+
+def read_latest_agent_runs_text(reports_dir: Path = Path("reports")) -> str:
+    candidates = sorted(reports_dir.glob("*/portfolio_multi_agent_runs.md"), reverse=True)
+    if not candidates:
+        return "No agent run output found. Generate one with `folio report --agentic`."
+    return clip_text(candidates[0].read_text(encoding="utf-8"), max_chars=20000)
 
 
 def read_latest_decision_table(reports_dir: Path = Path("reports")) -> str:
