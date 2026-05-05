@@ -1,9 +1,12 @@
 from folio.analyzer import calculate_metrics
 from folio.mock_data import mock_balance
+from folio.models import Balance, Position, now_utc
 from folio.terminal import (
     ACTION_TRIM,
+    ACTION_WATCH,
     build_terminal_dashboard,
     clip_text,
+    extract_position_action_table,
     read_latest_report_text,
     read_latest_workflow_trace,
     render_decision_text,
@@ -45,6 +48,8 @@ def test_render_decision_text_contains_action_table() -> None:
     assert "Action" in text
     assert "Legend" in text
     assert "Trim" in text
+    assert "no deterministic trim/exit trigger" not in text
+    assert "sector" in text
 
 
 def test_render_file_manifest_text_lists_outputs() -> None:
@@ -52,6 +57,44 @@ def test_render_file_manifest_text_lists_outputs() -> None:
 
     assert "reports/2026-05/" in text
     assert "portfolio_analysis_report.md" in text
+
+
+def test_terminal_dashboard_watches_crowded_sector_positions() -> None:
+    balance = Balance(
+        account_id="main",
+        ts=now_utc(),
+        cash=100_000,
+        eval_total=1_000_000,
+        pnl_total=10_000,
+        positions=[
+            Position("A", "Alpha", 1, 100, 100, 90_000, 1_000, 1.0, "반도체"),
+            Position("B", "Beta", 1, 100, 100, 450_000, 1_000, 1.0, "반도체"),
+            Position("C", "Core", 1, 100, 100, 460_000, 1_000, 1.0, "금융"),
+        ],
+    )
+
+    dashboard = build_terminal_dashboard(balance, calculate_metrics(balance))
+    row = next(position for position in dashboard.positions if position.code == "A")
+
+    assert row.action == ACTION_WATCH
+    assert "crowded sector" in row.reason
+
+
+def test_extract_position_action_table_reads_latest_report_section() -> None:
+    markdown = """
+## Position Action Table
+
+| 티커 | 종목명 | Action | Size | Trigger | Rationale | Confidence |
+|---|---|---|---|---|---|---|
+| 005930 | 삼성전자 | Hold | 유지 | 15% 이하 | core | medium |
+
+## Health Score
+"""
+
+    table = extract_position_action_table(markdown)
+
+    assert "005930" in table
+    assert "Health Score" not in table
 
 
 def test_clip_text_truncates_long_text() -> None:

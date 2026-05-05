@@ -22,6 +22,7 @@ class TerminalPositionRow:
     pnl: float
     pnl_pct: float
     sector: str
+    sector_weight: float
     action: str
     reason: str
 
@@ -73,8 +74,17 @@ def build_terminal_dashboard(balance: Balance, metrics: Metrics) -> TerminalDash
             pnl=position.pnl,
             pnl_pct=position.pnl_pct,
             sector=position.sector,
-            action=suggest_position_action(position, position_weight(metrics, position)),
-            reason=suggest_position_reason(position, position_weight(metrics, position)),
+            sector_weight=sector_weight(metrics, position),
+            action=suggest_position_action(
+                position,
+                position_weight(metrics, position),
+                sector_weight(metrics, position),
+            ),
+            reason=suggest_position_reason(
+                position,
+                position_weight(metrics, position),
+                sector_weight(metrics, position),
+            ),
         )
         for position in positions
     ]
@@ -113,7 +123,7 @@ def suggest_overall_action(
     return ACTION_HOLD, "risk concentration is not extreme under current snapshot"
 
 
-def suggest_position_action(position: Position, weight: float) -> str:
+def suggest_position_action(position: Position, weight: float, sector_weight: float) -> str:
     if is_leverage_position(position) and weight >= 0.15:
         return ACTION_TRIM
     if weight >= 0.15:
@@ -122,23 +132,60 @@ def suggest_position_action(position: Position, weight: float) -> str:
         return ACTION_EXIT
     if position.pnl_pct <= -10:
         return ACTION_WATCH
+    if position.pnl_pct >= 30:
+        return ACTION_WATCH
+    if sector_weight >= 0.4 and weight >= 0.05:
+        return ACTION_WATCH
+    if is_leverage_position(position):
+        return ACTION_WATCH
     return ACTION_HOLD
 
 
-def suggest_position_reason(position: Position, weight: float) -> str:
+def suggest_position_reason(position: Position, weight: float, sector_weight: float) -> str:
+    traits = []
+    if is_leverage_position(position):
+        traits.append("leveraged ETF")
+    else:
+        traits.append(infer_asset_class(position).lower())
+    traits.append(f"sector {position.sector or 'Unknown'} {sector_weight:.1%}")
+    traits.append(pnl_bucket(position.pnl_pct))
     if is_leverage_position(position) and weight >= 0.15:
-        return "leveraged position above 15% weight"
+        return "; ".join([*traits, f"weight {weight:.1%} > 15% cap"])
     if weight >= 0.15:
-        return "position above 15% weight"
+        return "; ".join([*traits, f"weight {weight:.1%} > 15% cap"])
     if position.pnl_pct <= -20:
-        return "loss exceeds -20%; thesis check required"
+        return "; ".join([*traits, "loss beyond -20%; thesis invalidation review"])
     if position.pnl_pct <= -10:
-        return "loss is material; monitor invalidation trigger"
-    return "no deterministic trim/exit trigger in snapshot"
+        return "; ".join([*traits, "loss beyond -10%; define recovery/exit trigger"])
+    if position.pnl_pct >= 30:
+        return "; ".join([*traits, "large gain; define trailing stop or trim trigger"])
+    if sector_weight >= 0.4 and weight >= 0.05:
+        return "; ".join([*traits, "crowded sector; avoid adding without new trigger"])
+    if is_leverage_position(position):
+        return "; ".join([*traits, "below size cap; monitor daily volatility"])
+    return "; ".join([*traits, f"weight {weight:.1%} below size cap"])
 
 
 def position_weight(metrics: Metrics, position: Position) -> float:
     return metrics.position_weights.get(position.code, 0.0)
+
+
+def sector_weight(metrics: Metrics, position: Position) -> float:
+    return metrics.sector_dist.get(position.sector or "Unknown", 0.0)
+
+
+def pnl_bucket(pnl_pct: float) -> str:
+    if pnl_pct >= 30:
+        return f"large gain {pnl_pct:+.1f}%"
+    if pnl_pct >= 15:
+        return f"strong gain {pnl_pct:+.1f}%"
+    if pnl_pct >= 3:
+        return f"modest gain {pnl_pct:+.1f}%"
+    if pnl_pct > -3:
+        return f"near flat {pnl_pct:+.1f}%"
+    if pnl_pct > -10:
+        return f"mild drawdown {pnl_pct:+.1f}%"
+    return f"material drawdown {pnl_pct:+.1f}%"
 
 
 def is_leverage_position(position: Position) -> bool:
@@ -150,15 +197,32 @@ def text_bar(ratio: float, width: int = 24) -> str:
     return "#" * filled + "-" * (width - filled)
 
 
-def render_decision_text(dashboard: TerminalDashboard, limit: int = 12) -> str:
+def render_decision_text(
+    dashboard: TerminalDashboard,
+    limit: int = 12,
+    llm_decision_text: str = "",
+) -> str:
     lines = [
         "[b]Decision Board[/b]",
         f"Portfolio stance: [{ACTION_TONE[dashboard.overall_action]}]"
         f"{dashboard.overall_action}[/] - {dashboard.overall_reason}",
         "",
-        "Action     Code     Weight    PnL%       Eval KRW        Reason",
-        "-" * 78,
     ]
+    if llm_decision_text:
+        lines.extend(
+            [
+                "[b]Latest LLM Position Actions[/b]",
+                llm_decision_text,
+                "",
+                "[b]Deterministic Snapshot Rules[/b]",
+            ]
+        )
+    lines.extend(
+        [
+            "Action     Code     Weight    PnL%       Eval KRW        Reason",
+            "-" * 78,
+        ]
+    )
     for row in dashboard.positions[:limit]:
         action = f"[{ACTION_TONE[row.action]}]{row.action:<9}[/]"
         lines.append(
@@ -231,6 +295,43 @@ def read_latest_report_text(reports_dir: Path = Path("reports")) -> str:
     if not candidates:
         return "No report found. Generate one with `folio report --agentic`."
     return clip_text(candidates[0].read_text(encoding="utf-8"))
+
+
+def read_latest_decision_table(reports_dir: Path = Path("reports")) -> str:
+    candidates = sorted(reports_dir.glob("*/portfolio_analysis_report.md"), reverse=True)
+    if not candidates:
+        return ""
+    return extract_position_action_table(candidates[0].read_text(encoding="utf-8"))
+
+
+def extract_position_action_table(markdown: str, max_rows: int = 8) -> str:
+    lines = markdown.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().lower().startswith("## position action table"):
+            table = collect_markdown_table(lines[index + 1 :], max_rows=max_rows)
+            return "\n".join(table)
+    return ""
+
+
+def collect_markdown_table(lines: list[str], max_rows: int) -> list[str]:
+    table: list[str] = []
+    data_rows = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if table:
+                break
+            continue
+        if not stripped.startswith("|"):
+            if table:
+                break
+            continue
+        is_separator = set(stripped.replace("|", "").strip()) <= {"-", ":", " "}
+        if len(table) < 2 or data_rows < max_rows or is_separator:
+            table.append(stripped)
+        if len(table) >= 2 and not is_separator:
+            data_rows += 1
+    return table
 
 
 def read_latest_workflow_trace(reports_dir: Path = Path("reports")) -> str:

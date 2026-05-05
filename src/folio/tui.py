@@ -8,6 +8,7 @@ from .models import Balance, Metrics, Snapshot
 from .report_service import ReportRequest, generate_report
 from .terminal import (
     build_terminal_dashboard,
+    read_latest_decision_table,
     read_latest_report_text,
     read_latest_workflow_trace,
     render_allocation_text,
@@ -138,7 +139,14 @@ def run_dashboard(
                                 classes="card",
                             )
                 with TabPane("Decision", id="decision"):
-                    yield Static(render_decision_text(dashboard), classes="card")
+                    yield Static(
+                        render_decision_text(
+                            dashboard,
+                            llm_decision_text=read_latest_decision_table(),
+                        ),
+                        classes="card",
+                        id="decision-board",
+                    )
                 with TabPane("Holdings", id="holdings"):
                     table = DataTable(zebra_stripes=True)
                     table.add_columns(
@@ -235,6 +243,12 @@ def run_dashboard(
             self.notify(f"Report generation failed: {message}", severity="error", timeout=8)
 
         def on_report_generated(self, report_path: str) -> None:
+            self.query_one("#decision-board", Static).update(
+                render_decision_text(
+                    dashboard,
+                    llm_decision_text=read_latest_decision_table(),
+                )
+            )
             self.query_one("#agent-trace", Static).update(read_latest_workflow_trace())
             self.query_one("#report-body", Static).update(read_latest_report_text())
             self.notify(f"Report generated: {report_path}", timeout=8)
