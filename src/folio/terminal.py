@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .models import Balance, Metrics, Position
 from .reporting import infer_asset_class, safe_ratio
@@ -138,3 +139,17 @@ def is_leverage_position(position: Position) -> bool:
 def text_bar(ratio: float, width: int = 24) -> str:
     filled = max(0, min(width, round(ratio * width)))
     return "#" * filled + "-" * (width - filled)
+
+
+def read_latest_report_text(reports_dir: Path = Path("reports")) -> str:
+    candidates = sorted(reports_dir.glob("*/portfolio_analysis_report.md"), reverse=True)
+    if not candidates:
+        return "No report found. Generate one with `folio report --agentic`."
+    return candidates[0].read_text(encoding="utf-8")
+
+
+def read_latest_workflow_trace(reports_dir: Path = Path("reports")) -> str:
+    candidates = sorted(reports_dir.glob("*/portfolio_workflow_trace.md"), reverse=True)
+    if not candidates:
+        return "No workflow trace found. Generate one with `folio report --agentic`."
+    return candidates[0].read_text(encoding="utf-8")

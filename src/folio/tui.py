@@ -6,7 +6,12 @@ from .agentic import LiquidityNeed
 from .config import Settings
 from .models import Balance, Metrics, Snapshot
 from .report_service import ReportRequest, generate_report
-from .terminal import build_terminal_dashboard, text_bar
+from .terminal import (
+    build_terminal_dashboard,
+    read_latest_report_text,
+    read_latest_workflow_trace,
+    text_bar,
+)
 
 
 def render_text_dashboard(balance: Balance, metrics: Metrics) -> None:
@@ -148,19 +153,16 @@ def run_dashboard(
                         (
                             "[b]Agent Workflow[/b]\n"
                             "7 analyst fan-out -> bull/bear/risk debate -> PM synthesis\n\n"
-                            "Use CLI for now:\n"
-                            "folio report --agentic --llm-max-calls 12 --llm-max-cost-usd 1.00"
+                            f"{read_latest_workflow_trace()}"
                         ),
                         classes="card",
+                        id="agent-trace",
                     )
                 with TabPane("Report", id="report"):
                     yield Static(
-                        (
-                            "[b]Latest Report[/b]\n"
-                            "reports/<YYYY-MM>/portfolio_analysis_report.md\n\n"
-                            "Generated reports stay local and are ignored by Git."
-                        ),
+                        read_latest_report_text(),
                         classes="card",
+                        id="report-body",
                     )
                 with TabPane("Files", id="files"):
                     yield Label("Generated outputs")
@@ -213,9 +215,13 @@ def run_dashboard(
                 ),
             )
             self.call_from_thread(
-                self.notify,
-                f"Report generated: {result.paths.report_path}",
-                timeout=8,
+                self.on_report_generated,
+                str(result.paths.report_path),
             )
+
+        def on_report_generated(self, report_path: str) -> None:
+            self.query_one("#agent-trace", Static).update(read_latest_workflow_trace())
+            self.query_one("#report-body", Static).update(read_latest_report_text())
+            self.notify(f"Report generated: {report_path}", timeout=8)
 
     FolioDashboard().run()

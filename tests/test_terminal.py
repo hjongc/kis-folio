@@ -1,6 +1,12 @@
 from folio.analyzer import calculate_metrics
 from folio.mock_data import mock_balance
-from folio.terminal import ACTION_TRIM, build_terminal_dashboard, text_bar
+from folio.terminal import (
+    ACTION_TRIM,
+    build_terminal_dashboard,
+    read_latest_report_text,
+    read_latest_workflow_trace,
+    text_bar,
+)
 
 
 def test_build_terminal_dashboard_includes_actions_and_bars() -> None:
@@ -25,3 +31,8 @@ def test_text_bar_has_stable_width() -> None:
     assert len(text_bar(0.5, width=10)) == 10
     assert text_bar(2.0, width=10) == "##########"
     assert text_bar(-1.0, width=10) == "----------"
+
+
+def test_latest_report_readers_return_empty_state(tmp_path) -> None:
+    assert "No report found" in read_latest_report_text(tmp_path)
+    assert "No workflow trace found" in read_latest_workflow_trace(tmp_path)
