@@ -89,6 +89,8 @@ def test_render_agent_briefs_contains_portfolio_roles() -> None:
     assert "Allocation Analyst" in markdown
     assert "Liquidity Planner" in markdown
     assert "Data Gap Analyst" in markdown
+    assert "단기 국내 증시 강세" not in markdown
+    assert "작성자 가설처럼" not in markdown
 
 
 def test_render_agent_runs_markdown_contains_roles() -> None:

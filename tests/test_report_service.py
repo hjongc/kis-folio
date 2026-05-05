@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+from stat import S_IMODE
 
 from folio.agentic import LiquidityNeed
 from folio.analyzer import calculate_metrics
@@ -64,3 +65,5 @@ def test_generate_report_no_llm_writes_base_outputs(tmp_path: Path) -> None:
     assert result.paths.briefs_path.exists()
     assert result.paths.visual_path.exists()
     assert not result.paths.report_path.exists()
+    assert S_IMODE(result.paths.snapshot_path.stat().st_mode) == 0o600
+    assert S_IMODE(result.paths.snapshot_path.parent.stat().st_mode) == 0o700

@@ -21,6 +21,7 @@ from .reporting import (
     render_report_prompt,
     render_snapshot_markdown,
 )
+from .security import ensure_private_directory
 from .visuals import render_portfolio_svg
 
 
@@ -123,5 +124,6 @@ def generate_report(settings: Settings, repo_root: Path, request: ReportRequest)
 
 
 def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(path.parent)
     path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)

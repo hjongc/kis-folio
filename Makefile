@@ -19,3 +19,5 @@ audit:
 smoke:
 	FOLIO_DB_PATH=$(PWD)/.folio-test/smoke.db PYTHONPATH=src $(PYTHON) -m folio.cli --env-file .env.example status --mock
 	FOLIO_DB_PATH=$(PWD)/.folio-test/smoke.db PYTHONPATH=src $(PYTHON) -m folio.cli --env-file .env.example analyze --mock
+	FOLIO_DB_PATH=$(PWD)/.folio-test/smoke.db PYTHONPATH=src $(PYTHON) -m folio.cli --env-file .env.example report --mock --no-llm --period 2026-05 --report-date 2026-05-05 --output-dir $(PWD)/.folio-test/smoke-reports
+	PYTHONPATH=src $(PYTHON) -m folio.cli tui --help

@@ -865,11 +865,33 @@ def liquidity_analyst(snapshot: Snapshot, need: LiquidityNeed) -> AgentBrief:
 
 def bull_researcher(snapshot: Snapshot) -> AgentBrief:
     best = max(snapshot.balance.positions, key=lambda position: position.pnl_pct)
+    asset_total = snapshot.balance.asset_total
+    cash_weight = safe_ratio(snapshot.balance.cash, asset_total)
+    leverage_amount = sum(
+        position.eval_amount
+        for position in snapshot.balance.positions
+        if is_leverage_position(position)
+    )
+    semiconductor_amount = sum(
+        position.eval_amount
+        for position in snapshot.balance.positions
+        if has_any(position, ["반도체", "005930", "000660", "필라델피아"])
+    )
+    exposure_labels = []
+    if leverage_amount > 0:
+        exposure_labels.append("레버리지")
+    if semiconductor_amount > 0:
+        exposure_labels.append("반도체")
+    exposure = "/".join(exposure_labels) if exposure_labels else "현재 보유 포지션"
+    cash_finding = (
+        "현금 비중이 높아 하락 시 재배분 여력이 있다."
+        if cash_weight >= 0.1
+        else "현금 비중이 낮아 추가 진입 여력은 제한적이다."
+    )
     findings = [
         f"가장 강한 근거는 {best.name}의 누적 손익률 {best.pnl_pct:+.1f}%이다.",
-        "현금 비중이 높아 하락 시 재배분 여력이 있다.",
-        "작성자 가설처럼 단기 국내 증시 강세가 이어지면 "
-        "레버리지/반도체 노출이 성과를 키울 수 있다.",
+        cash_finding,
+        f"우호적인 시장/업종 시나리오가 이어지면 {exposure} 노출이 성과에 기여할 수 있다.",
     ]
     return AgentBrief("Bull Researcher", "상승 시나리오", findings)
 
