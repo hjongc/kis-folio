@@ -19,3 +19,4 @@ jobs:
       - run: python -m compileall src tests
       - run: python -m pytest
       - run: ruff check src tests
+      - run: python scripts/secret_audit.py
