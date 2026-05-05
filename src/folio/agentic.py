@@ -93,8 +93,10 @@ AGENT_SPECS = [
     ),
     AgentSpec(
         "Liquidity Planner",
-        "현금 필요 제약",
-        "필요 현금, 출금일, 현재 현금, 매도 필요 여부를 최상위 제약으로 분석하라.",
+        "현금 유동성 점검",
+        "현금 필요 조건이 입력된 경우에만 필요 현금, 출금일, 매도 필요 여부를 "
+        "최상위 제약으로 분석하라. 입력되지 않았다면 출금 일정을 가정하지 말고 "
+        "현금 비중과 재배분 여력만 점검하라.",
         "fast",
     ),
     AgentSpec(
@@ -134,7 +136,8 @@ DEBATE_SPECS = [
     AgentSpec(
         "Risk Manager Final Review",
         "최종 위험 한도 검토",
-        "초기 분석과 debate 결과를 보고 출금 전까지 반드시 지켜야 할 한도와 트리거를 제시하라.",
+        "초기 분석과 debate 결과를 보고 반드시 지켜야 할 포지션 한도와 트리거를 제시하라. "
+        "현금 필요 조건이 입력된 경우에만 출금 전 유동성 한도를 별도로 제시하라.",
         "advisor",
     ),
 ]
@@ -755,6 +758,8 @@ def render_agent_prompt(
 - 필요한 경우 trigger/action/size 형태의 실행 규칙을 제안한다.
 - 신규 종목 매수 권유는 하지 않는다.
 - 다른 에이전트와 토론할 수 있도록 결론과 근거를 분리한다.
+- liquidity_need의 amount/needed_by/withdraw_by가 null이면 출금 일정이나
+  개인 현금 필요를 가정하지 않는다.
 
 liquidity_need:
 {liquidity_need_to_json(liquidity_need)}
@@ -967,7 +972,11 @@ def liquidity_analyst(snapshot: Snapshot, need: LiquidityNeed) -> AgentBrief:
     findings = [f"현재 현금은 {balance.cash:,.0f}원이다."]
     gaps: list[str] = []
     if need.amount is None:
-        gaps.append("필요 현금 금액이 입력되지 않아 출금 부족분을 계산할 수 없다.")
+        findings.append("별도 현금 필요 조건은 입력되지 않았다.")
+        gaps.append(
+            "특정 날짜의 현금 필요가 있으면 --cash-need/--needed-by/--withdraw-by로 "
+            "별도 입력한다."
+        )
     else:
         shortage = max(need.amount - balance.cash, 0.0)
         findings.append(f"입력된 필요 현금은 {need.amount:,.0f}원, 부족분은 {shortage:,.0f}원이다.")
@@ -980,7 +989,7 @@ def liquidity_analyst(snapshot: Snapshot, need: LiquidityNeed) -> AgentBrief:
     if need.withdraw_by:
         findings.append(f"출금 목표일: {need.withdraw_by.isoformat()}")
     gaps.append("KIS 휴장일/결제일 API를 연결하면 T+2 기반 최종 매도 가능일을 자동 산출할 수 있다.")
-    return AgentBrief("Liquidity Planner", "현금 필요 제약", findings, gaps)
+    return AgentBrief("Liquidity Planner", "현금 유동성 점검", findings, gaps)
 
 
 def bull_researcher(snapshot: Snapshot) -> AgentBrief:
