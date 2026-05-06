@@ -3,9 +3,12 @@ from pathlib import Path
 
 from folio.agentic import (
     AGENT_SPECS,
+    DEBATE_SPECS,
     LiquidityNeed,
     build_agent_briefs,
     choose_agent_model,
+    read_agent_role_prompt,
+    read_bundled_prompt,
     render_agent_briefs_markdown,
     render_agent_prompt,
     render_agent_runs_markdown,
@@ -60,6 +63,19 @@ def test_render_agent_prompt_requires_structured_debate_signals() -> None:
 
     assert "action_label: Increase|Hold|Trim|Exit|Watch" in prompt
     assert "risk_level: low|medium|high" in prompt
+    assert "역할별 프롬프트" in prompt
+
+
+def test_all_agent_specs_have_bundled_role_prompts() -> None:
+    for spec in [*AGENT_SPECS, *DEBATE_SPECS]:
+        prompt = read_agent_role_prompt(spec)
+        assert prompt
+        assert prompt != spec.task
+
+    manager_prompt = read_bundled_prompt("agents/portfolio_manager.md")
+
+    assert "Portfolio Manager" in manager_prompt
+    assert "Position Action Table" in manager_prompt
 
 
 def test_default_macro_view_is_generic() -> None:

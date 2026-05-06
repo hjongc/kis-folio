@@ -161,6 +161,9 @@ folio report \
 5. **Synthesis**: Portfolio Manager가 최종 리포트를 만들고, 누락 시 `Position Action Table`을 보강합니다.
 6. **TUI/Outputs**: TUI가 최신 Decision, Agents, Report, SVG 산출물을 로컬 파일에서 다시 읽어 보여줍니다.
 
+역할별 LLM 프롬프트는 `src/folio/prompts/agents/`에 분리되어 있습니다. 코드에는
+workflow와 데이터 연결 로직만 두고, 에이전트별 관점은 파일로 리뷰할 수 있게 했습니다.
+
 주문 실행 API는 연결하지 않습니다. LLM을 사용할 때만 사용자가 설정한 OpenRouter/OpenAI-compatible provider로 리포트 입력이 전송됩니다.
 
 ## 산출물

@@ -34,7 +34,7 @@ folio = "folio.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-folio = ["prompts/*.md"]
+folio = ["prompts/*.md", "prompts/agents/*.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

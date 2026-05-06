@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from importlib import resources
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any, TypedDict
@@ -37,6 +38,7 @@ class AgentSpec:
     stance: str
     task: str
     model_route: str = "fast"
+    prompt_file: str = ""
 
 
 @dataclass
@@ -78,18 +80,21 @@ AGENT_SPECS = [
         "계좌 구조와 비중 점검",
         "자산군, 현금, Top 포지션, 집중도를 분석하고 구조적 문제를 찾아라.",
         "fast",
+        "allocation_analyst.md",
     ),
     AgentSpec(
         "Macro Exposure Analyst",
         "매크로 민감도 점검",
         "국내/원화/ETF/레버리지/반도체 노출이 작성자 매크로 가설과 맞는지 분석하라.",
         "advisor",
+        "macro_exposure_analyst.md",
     ),
     AgentSpec(
         "Market/Momentum Analyst",
         "가격 모멘텀 점검",
         "평가손익률, 상위/하위 포지션, 추세 추정과 데이터 한계를 분석하라.",
         "fast",
+        "market_momentum_analyst.md",
     ),
     AgentSpec(
         "Liquidity Planner",
@@ -98,24 +103,28 @@ AGENT_SPECS = [
         "최상위 제약으로 분석하라. 입력되지 않았다면 출금 일정을 가정하지 말고 "
         "현금 비중과 재배분 여력만 점검하라.",
         "fast",
+        "liquidity_planner.md",
     ),
     AgentSpec(
         "Bull Researcher",
         "상승 시나리오",
         "작성자 가설이 맞을 때 어떤 보유 포지션이 수혜를 보는지 강한 논거를 제시하라.",
         "advisor",
+        "bull_researcher.md",
     ),
     AgentSpec(
         "Bear Researcher",
         "하락 시나리오",
         "작성자 가설이 틀릴 때 계좌가 어떻게 손상되는지 반대 논거를 제시하라.",
         "advisor",
+        "bear_researcher.md",
     ),
     AgentSpec(
         "Risk Manager",
         "자본 보존",
         "허용 drawdown, 집중도, 레버리지, 현금 잠금 관점에서 위험 한도를 제시하라.",
         "advisor",
+        "risk_manager.md",
     ),
 ]
 
@@ -126,12 +135,14 @@ DEBATE_SPECS = [
         "상승 논거 재검토",
         "초기 에이전트 결과를 보고 상승 시나리오에서 여전히 유효한 논거와 약해진 논거를 분리하라.",
         "advisor",
+        "bull_researcher_rebuttal.md",
     ),
     AgentSpec(
         "Bear Researcher Rebuttal",
         "하락 논거 재검토",
         "초기 에이전트 결과를 보고 작성자의 가설이 틀릴 경우 가장 먼저 훼손될 지점을 제시하라.",
         "advisor",
+        "bear_researcher_rebuttal.md",
     ),
     AgentSpec(
         "Risk Manager Final Review",
@@ -139,6 +150,7 @@ DEBATE_SPECS = [
         "초기 분석과 debate 결과를 보고 반드시 지켜야 할 포지션 한도와 트리거를 제시하라. "
         "현금 필요 조건이 입력된 경우에만 출금 전 유동성 한도를 별도로 제시하라.",
         "advisor",
+        "risk_manager_final_review.md",
     ),
 ]
 
@@ -713,6 +725,7 @@ def synthesize_llm_agent_report(
     )
     if usage_tracker is not None:
         usage_tracker.reserve("Portfolio Manager Synthesis")
+    manager_prompt = read_bundled_prompt("agents/portfolio_manager.md")
     prompt = (
         f"{report_prompt}\n\n"
         "multi_agent_outputs.md:\n\n"
@@ -723,10 +736,7 @@ def synthesize_llm_agent_report(
         "- 주문 실행 지시는 금지하고, trigger/action/size 규칙으로만 표현하라.\n"
     )
     output, usage = advisor.generate_markdown(
-        system_prompt=(
-            "당신은 멀티에이전트 포트폴리오 리서치 팀의 Portfolio Manager다. "
-            "각 에이전트의 의견을 종합하되, 투자 권유가 아니라 의사결정 보조 리포트를 작성한다."
-        ),
+        system_prompt=manager_prompt,
         user_prompt=prompt,
         model=model,
         operation="agent:Portfolio Manager Synthesis",
@@ -746,9 +756,13 @@ def render_agent_prompt(
     prior_outputs: list[str],
 ) -> str:
     prior = "\n\n".join(prior_outputs) if prior_outputs else "없음"
+    role_prompt = read_agent_role_prompt(spec)
     return f"""역할: {spec.role}
 관점: {spec.stance}
 작업: {spec.task}
+
+역할별 프롬프트:
+{role_prompt}
 
 출력 규칙:
 - 5개 이하 bullet로 핵심 발견을 작성한다.
@@ -776,10 +790,27 @@ prior_agent_outputs.md:
 
 
 def agent_system_prompt(spec: AgentSpec) -> str:
+    role_prompt = read_agent_role_prompt(spec)
     return (
         f"당신은 folio 멀티에이전트 팀의 {spec.role}다. "
         f"관점은 '{spec.stance}'이다. "
-        "한국 개인투자자의 계좌 단위 리포트를 위해 사실과 해석을 분리해 분석한다."
+        "한국 개인투자자의 계좌 단위 리포트를 위해 사실과 해석을 분리해 분석한다.\n\n"
+        f"{role_prompt}"
+    )
+
+
+def read_agent_role_prompt(spec: AgentSpec) -> str:
+    if not spec.prompt_file:
+        return spec.task
+    return read_bundled_prompt(f"agents/{spec.prompt_file}")
+
+
+def read_bundled_prompt(relative_path: str) -> str:
+    return (
+        resources.files("folio.prompts")
+        .joinpath(relative_path)
+        .read_text(encoding="utf-8")
+        .strip()
     )
 
 
